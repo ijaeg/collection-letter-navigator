@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Minimal excerpt in the structure of gesetze-im-internet.de, texts shortened (tests only). -->
+<dokumente builddate="20260101000000" doknr="BJNR000000000">
+  <norm builddate="20260101000000" doknr="BJNR000000000">
+    <metadaten>
+      <jurabk>ZPO</jurabk>
+      <langue>Zivilprozessordnung</langue>
+    </metadaten>
+    <textdaten><text format="XML"><Content><P>Eingangsformel</P></Content></text></textdaten>
+  </norm>
+  <norm builddate="20260101000000" doknr="BJNR000000000BJNG000100000">
+    <metadaten>
+      <jurabk>ZPO</jurabk>
+      <gliederungseinheit>
+        <gliederungsbez>Abschnitt 1</gliederungsbez>
+        <gliederungstitel>Mahnverfahren</gliederungstitel>
+      </gliederungseinheit>
+    </metadaten>
+  </norm>
+  <norm builddate="20260101000000" doknr="BJNR000000000BJNE000100000">
+    <metadaten>
+      <jurabk>ZPO</jurabk>
+      <enbez>§ 688</enbez>
+      <titel format="parat">Zulässigkeit</titel>
+    </metadaten>
+    <textdaten><text format="XML"><Content>
+      <P>(1) Wegen eines Anspruchs, der die Zahlung einer bestimmten
+         Geldsumme zum Gegenstand hat, ist auf Antrag ein Mahnbescheid zu erlassen.</P>
+    </Content></text></textdaten>
+  </norm>
+  <norm builddate="20260101000000" doknr="BJNR000000000BJNE000200000">
+    <metadaten>
+      <jurabk>ZPO</jurabk>
+      <enbez>§ 692</enbez>
+      <titel format="parat">Mahnbescheid</titel>
+    </metadaten>
+    <textdaten><text format="XML"><Content>
+      <P>(1) Der Mahnbescheid enthält:<DL Type="arabic"><DT>1.</DT><DD><LA>die Angaben des Antrags;</LA></DD><DT>3.</DT><DD><LA>die Aufforderung, binnen zwei Wochen seit der Zustellung Widerspruch zu erheben;</LA></DD></DL></P>
+      <P>(2) An Stelle einer handschriftlichen Unterzeichnung genügt ein entsprechender Stempelabdruck.</P>
+    </Content></text>
+    <fussnoten><Content><P>Fußnote, die nicht in den Chunk gehört.</P></Content></fussnoten>
+    </textdaten>
+  </norm>
+  <norm builddate="20260101000000" doknr="BJNR000000000BJNE000300000">
+    <metadaten>
+      <jurabk>ZPO</jurabk>
+      <enbez>§ 703a</enbez>
+      <titel format="parat">Urkunden-, Wechsel- und Scheckmahnverfahren</titel>
+    </metadaten>
+    <textdaten><text format="XML"><Content><P>(1) Ist der Antrag des Antragstellers auf den Erlass eines Urkunden-Mahnbescheids gerichtet, so wird der Mahnbescheid als solcher bezeichnet.</P></Content></text></textdaten>
+  </norm>
+  <norm builddate="20260101000000" doknr="BJNR000000000BJNE000400000">
+    <metadaten>
+      <jurabk>ZPO</jurabk>
+      <enbez>§ 704</enbez>
+      <titel format="parat">Vollstreckbare Endurteile</titel>
+    </metadaten>
+    <textdaten><text format="XML"><Content><P>Die Zwangsvollstreckung findet statt aus Endurteilen.</P></Content></text></textdaten>
+  </norm>
+</dokumente>
