@@ -1,0 +1,26 @@
+# Knowledge-base scope: the provisions that are indexed (FR-04 AC1).
+#
+# Structure: law code -> list of section labels (without the § sign).
+# Only the laws listed in config.KB_LAWS are allowed. The exact RDG list is
+# fixed in the spike (§11) before the index is built.
+#
+# Initial scope of FR-04 AC1:
+#   BGB  §§ 186-193  (periods and time limits)
+#        §§ 194-218  (limitation)
+#        §  247      (base rate)
+#        §  266      (no right to pay in instalments)
+#        §  280      (damages for breach of duty)
+#        §§ 286-288  (default and default interest)
+#        §  362      (performance discharges the debt)
+#        §  368      (receipt)
+#   ZPO  §  222      (counting of periods)
+#        §§ 338-339  (Einspruch and its period)
+#        §§ 688-703d (summary payment procedure)
+#   RDG  provisions on collection services, information duties and collection
+#        costs - the exact list is fixed in the spike (§11)
+
+# TODO (FR-04 AC1): replace the placeholders below with the explicit section
+# lists once the spike has fixed the RDG scope.
+BGB: []
+ZPO: []
+RDG: []

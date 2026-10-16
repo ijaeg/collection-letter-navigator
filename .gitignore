@@ -1,0 +1,19 @@
+# Secrets
+.env
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+
+# Tooling caches and reports
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+
+# Opt-in debug log (FR-23 AC2)
+logs/
+
+# Downloaded statute XML; the built index under data/index/ IS committed (FR-04 AC4)
+data/raw/
