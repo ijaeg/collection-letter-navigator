@@ -12,17 +12,21 @@ Related: FR-04, FR-06 AC1, FR-21 AC6, NFR-10, §9
 from __future__ import annotations
 
 import io
+import json
 import re
+import shutil
 import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import yaml
+from langchain_chroma import Chroma
 from langchain_core.documents import Document
+from langchain_core.embeddings import Embeddings
 
-from collection_letter_navigator import config
+from collection_letter_navigator import config, llm
 
 #: Default download cache for the statute XML (gitignored, see .gitignore).
 RAW_DIR: Path = config.DATA_DIR / "raw"
@@ -355,33 +359,101 @@ def build_chunks(
 
 
 # ---------------------------------------------------------------------------
-# Index and manifest (FR-04 AC4, FR-21 AC6) – implemented on Sunday
+# Index and manifest (FR-04 AC4, AC6, FR-21 AC6)
 # ---------------------------------------------------------------------------
 
 
-def write_index(chunks: list[Document], index_dir: Path | None = None) -> None:
+def write_index(
+    chunks: list[Document],
+    index_dir: Path | None = None,
+    embeddings: Embeddings | None = None,
+) -> None:
     """Embed the chunks and persist the Chroma index.
+
+    The target directory is rebuilt from scratch, so the index always matches the
+    chunks exactly (FR-04 AC5).
+
+    Args:
+        chunks: The chunks to index; each must carry its ``id``.
+        index_dir: Target directory; defaults to :data:`config.INDEX_DIR`.
+        embeddings: Embedding client; defaults to :func:`llm.build_embeddings`.
+            Tests pass a fake here.
+
+    Returns:
+        None.
+
+    Raises:
+        RuntimeError: If embedding fails; a partial index is not left behind.
 
     Related: FR-04 AC4, FR-04 AC6
     """
-    raise NotImplementedError("FR-04 AC4: embed the chunks and persist the Chroma index")
+    target = index_dir or config.INDEX_DIR
+    if target.exists():
+        shutil.rmtree(target)
+    try:
+        store = Chroma(  # AI: the vector store keeps one embedding per chunk
+            collection_name=config.CHROMA_COLLECTION_NAME,
+            embedding_function=embeddings or llm.build_embeddings(),  # AI: same model as queries
+            persist_directory=str(target),
+        )
+        store.add_documents(chunks, ids=[str(chunk.id) for chunk in chunks])  # AI: embeds here
+    except Exception as error:
+        shutil.rmtree(target, ignore_errors=True)
+        raise RuntimeError(f"Embedding failed, no index was written: {error}") from error
 
 
 def write_manifest(
     chunks: list[Document],
     snapshot_date: date,
     index_dir: Path | None = None,
+    embedding_model: str | None = None,
 ) -> None:
     """Write the index manifest shown in the UI.
 
+    Args:
+        chunks: The indexed chunks, used for counts per law.
+        snapshot_date: Date the statute XML was retrieved.
+        index_dir: Target directory; defaults to :data:`config.INDEX_DIR`.
+        embedding_model: Model used for the index; defaults to
+            :data:`config.EMBEDDING_MODEL`.
+
+    Returns:
+        None.
+
     Related: FR-04 AC4, FR-21 AC6, NFR-10
     """
-    raise NotImplementedError("FR-04 AC4: record snapshot date and embedding model")
+    target = index_dir or config.INDEX_DIR
+    target.mkdir(parents=True, exist_ok=True)
+    per_law: dict[str, int] = {}
+    for chunk in chunks:
+        per_law[chunk.metadata["law"]] = per_law.get(chunk.metadata["law"], 0) + 1
+    manifest = {
+        "snapshot_date": snapshot_date.isoformat(),
+        "embedding_model": embedding_model or config.EMBEDDING_MODEL,
+        "built_at": datetime.now().isoformat(timespec="seconds"),
+        "chunk_count": len(chunks),
+        "chunks_per_law": per_law,
+        "chunk_ids": [str(chunk.id) for chunk in chunks],
+    }
+    (target / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
 
 def read_manifest(index_dir: Path | None = None) -> dict[str, object]:
     """Read the manifest of the committed index.
 
+    Args:
+        index_dir: Index directory; defaults to :data:`config.INDEX_DIR`.
+
+    Returns:
+        The manifest contents: snapshot date, embedding model and chunk counts.
+
+    Raises:
+        FileNotFoundError: If the index has not been built.
+
     Related: FR-04 AC4, FR-21 AC6
     """
-    raise NotImplementedError("FR-21 AC6: read the snapshot date for the sidebar")
+    path = (index_dir or config.INDEX_DIR) / "manifest.json"
+    if not path.exists():
+        raise FileNotFoundError(f"No index manifest at {path}; run scripts/build_index.py first")
+    data: dict[str, object] = json.loads(path.read_text(encoding="utf-8"))
+    return data

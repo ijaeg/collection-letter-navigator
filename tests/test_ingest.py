@@ -1,7 +1,8 @@
 """Tests for :mod:`collection_letter_navigator.ingest`.
 
 Uses a minimal XML excerpt in the structure of gesetze-im-internet.de
-(``tests/fixtures/mini_law.xml``), so no network call is made.
+(``tests/fixtures/mini_law.xml``) and a fake embedding model, so no network
+call is made.
 
 Related: FR-04, NFR-06
 """
@@ -12,6 +13,7 @@ from datetime import date
 from pathlib import Path
 
 import pytest
+from langchain_core.embeddings import DeterministicFakeEmbedding
 
 from collection_letter_navigator import ingest
 
@@ -120,6 +122,35 @@ def test_fr04_ac5_second_run_yields_same_chunk_ids_and_count(tmp_path: Path) -> 
     assert len(first) == 4
 
 
-@pytest.mark.skip(reason="implemented on Sunday: FR-04 AC4")
-def test_fr04_ac4_manifest_records_snapshot_date_and_embedding_model() -> None:
-    """The manifest holds what the sidebar shows and what reproduces the index."""
+def test_fr04_ac4_index_and_manifest_round_trip(tmp_path: Path) -> None:
+    """The index is written with the chunk IDs; the manifest records what the UI shows."""
+    chunks = [c for s in _sections(["688-704"]) for c in ingest.chunk_section(s)]
+    index_dir = tmp_path / "index"
+    ingest.write_index(chunks, index_dir, embeddings=DeterministicFakeEmbedding(size=8))
+    ingest.write_manifest(chunks, SNAPSHOT, index_dir, embedding_model="fake-model")
+
+    manifest = ingest.read_manifest(index_dir)
+    assert manifest["snapshot_date"] == "2026-10-16"
+    assert manifest["embedding_model"] == "fake-model"
+    assert manifest["chunk_count"] == 4
+    assert manifest["chunks_per_law"] == {"ZPO": 4}
+
+
+def test_fr04_ac4_write_index_leaves_no_partial_index(tmp_path: Path) -> None:
+    """If embedding fails, the target directory does not exist afterwards."""
+
+    class FailingEmbeddings(DeterministicFakeEmbedding):
+        def embed_documents(self, texts: list[str]) -> list[list[float]]:
+            raise ConnectionError("network down")
+
+    index_dir = tmp_path / "index"
+    chunks = ingest.chunk_section(_sections(["688"])[0])
+    with pytest.raises(RuntimeError, match="no index was written"):
+        ingest.write_index(chunks, index_dir, embeddings=FailingEmbeddings(size=8))
+    assert not index_dir.exists()
+
+
+def test_fr04_ac4_read_manifest_without_index_raises(tmp_path: Path) -> None:
+    """A missing index gives a clear error instead of a crash later."""
+    with pytest.raises(FileNotFoundError, match="build_index"):
+        ingest.read_manifest(tmp_path)
