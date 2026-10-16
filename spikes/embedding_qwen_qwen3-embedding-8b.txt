@@ -1,0 +1,15 @@
+Model: qwen/qwen3-embedding-8b · dimensions: 4096
+
+OK   I got a letter from the court. How long do I have to object?
+     ZPO § 692=0.546, BGB § 195=0.436, RDG info duties=0.343, BGB § 288=0.229
+
+OK   My phone bill is from 2021. Is it too old to be collected?
+     BGB § 195=0.436, BGB § 288=0.366, RDG info duties=0.362, ZPO § 692=0.326
+
+OK   How much interest can they charge me for paying late?
+     BGB § 288=0.524, BGB § 195=0.352, ZPO § 692=0.300, RDG info duties=0.288
+
+OK   The debt collector did not say who they work for. Must they tell me?
+     RDG info duties=0.546, BGB § 195=0.263, BGB § 288=0.235, ZPO § 692=0.225
+
+Cross-lingual top-1 accuracy: 4/4 = 100%
