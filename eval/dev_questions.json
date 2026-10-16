@@ -1,1 +1,12 @@
-[]
+[
+  {"id": "D01", "question_en": "I got a letter from the court. How long do I have to object?", "sender": "court", "expected": ["ZPO § 692", "ZPO § 694"], "category": "deadline"},
+  {"id": "D02", "question_en": "What happens if I don't react to the court payment order at all?", "sender": "court", "expected": ["ZPO § 699"], "category": "ignore_consequences"},
+  {"id": "D03", "question_en": "The court sent me an enforcement order. Can I still do anything about it?", "sender": "court", "expected": ["ZPO § 700", "ZPO § 339"], "category": "deadline"},
+  {"id": "D04", "question_en": "The last day to object is a Sunday. Does the deadline move?", "sender": "court", "expected": ["ZPO § 222", "BGB § 193"], "category": "deadline"},
+  {"id": "D05", "question_en": "My phone bill is from 2021. Is it too old to be collected?", "sender": "creditor", "expected": ["BGB § 195", "BGB § 199"], "category": "limitation"},
+  {"id": "D06", "question_en": "When does the three-year period for an old debt start to run?", "sender": "collection_agency", "expected": ["BGB § 199"], "category": "limitation"},
+  {"id": "D07", "question_en": "How much interest can they charge me for paying late?", "sender": "collection_agency", "expected": ["BGB § 288", "BGB § 247"], "category": "interest"},
+  {"id": "D08", "question_en": "From what point am I officially late with my payment?", "sender": "creditor", "expected": ["BGB § 286"], "category": "interest"},
+  {"id": "D09", "question_en": "I already paid this bill. Do I have to pay it again?", "sender": "creditor", "expected": ["BGB § 362", "BGB § 368"], "category": "already_paid"},
+  {"id": "D10", "question_en": "Can I insist on paying the debt in small instalments?", "sender": "collection_agency", "expected": ["BGB § 266"], "category": "instalments"}
+]

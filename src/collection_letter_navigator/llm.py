@@ -12,13 +12,19 @@ NFR-03, §5, §12 D-1, §12 D-3
 
 from __future__ import annotations
 
+import os
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from dotenv import load_dotenv
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
+from langchain_openai import OpenAIEmbeddings
+from pydantic import SecretStr
+
+from collection_letter_navigator import config
 
 #: Kinds of text the embedding model distinguishes by prefix (FR-04 AC6).
 EmbeddingInputKind = Literal["query", "passage"]
@@ -67,7 +73,7 @@ def load_environment() -> None:
 
     Related: FR-23 AC3, NFR-01
     """
-    raise NotImplementedError("FR-23 AC3: load .env without exposing the API key")
+    load_dotenv(override=False)  # an exported variable always wins over .env
 
 
 def get_api_key() -> str:
@@ -81,7 +87,35 @@ def get_api_key() -> str:
 
     Related: FR-23 AC3, NFR-01
     """
-    raise NotImplementedError("FR-23 AC3: read OPENROUTER_API_KEY from the environment")
+    key = os.getenv(config.OPENROUTER_API_KEY_ENV, "").strip()
+    if not key:
+        raise LlmCallError(
+            f"The environment variable {config.OPENROUTER_API_KEY_ENV} is not set. "
+            "Export it or add it to a .env file (see .env.example)."
+        )
+    return key
+
+
+class PrefixedEmbeddings(Embeddings):
+    """Wrap an embedding client so that every input gets the configured prefix.
+
+    Chroma calls ``embed_documents`` when indexing and ``embed_query`` when
+    searching, so wrapping the client is enough to apply the convention of
+    FR-04 AC6 everywhere.
+
+    Related: FR-04 AC6
+    """
+
+    def __init__(self, inner: Embeddings) -> None:
+        self._inner = inner
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        """Embed indexed passages (FR-04 AC6)."""
+        return self._inner.embed_documents([apply_embedding_prefix(t, "passage") for t in texts])
+
+    def embed_query(self, text: str) -> list[float]:
+        """Embed one search query (FR-04 AC6)."""
+        return self._inner.embed_query(apply_embedding_prefix(text, "query"))
 
 
 def build_chat_model(
@@ -125,7 +159,16 @@ def build_embeddings(model: str | None = None) -> Embeddings:
 
     Related: FR-04 AC6, NFR-01, §12 D-1
     """
-    raise NotImplementedError("D-1: build the OpenRouter embedding client from config")
+    client = OpenAIEmbeddings(
+        model=model or config.EMBEDDING_MODEL,  # AI: the model that turns text into vectors
+        base_url=config.OPENROUTER_BASE_URL,
+        api_key=SecretStr(get_api_key()),
+        check_embedding_ctx_length=False,  # send raw text, not OpenAI token IDs
+        timeout=config.REQUEST_TIMEOUT_SECONDS,
+        max_retries=config.MAX_RETRIES,
+        model_kwargs={"extra_body": {"provider": config.PROVIDER_PREFERENCES}},  # D-3
+    )
+    return PrefixedEmbeddings(client)
 
 
 def apply_embedding_prefix(text: str, kind: EmbeddingInputKind) -> str:
@@ -143,7 +186,8 @@ def apply_embedding_prefix(text: str, kind: EmbeddingInputKind) -> str:
 
     Related: FR-04 AC6
     """
-    raise NotImplementedError("FR-04 AC6: apply the e5 query/passage prefix in one place")
+    prefix = config.EMBEDDING_QUERY_PREFIX if kind == "query" else config.EMBEDDING_PASSAGE_PREFIX
+    return f"{prefix}{text}"
 
 
 def invoke_with_retry(

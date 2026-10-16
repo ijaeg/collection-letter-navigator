@@ -69,13 +69,17 @@ OPENROUTER_MODELS_URL: str = f"{OPENROUTER_BASE_URL}/models"
 CHAT_MODEL: str = os.getenv("CHAT_MODEL", "openai/gpt-5-mini")
 
 #: Default embedding model, overridable by ``EMBEDDING_MODEL`` (D-1, FR-04 AC6).
-EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "intfloat/multilingual-e5-large")
+#: Chosen in the spike (spikes/NOTES.md); fallback: openai/text-embedding-3-small.
+EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "qwen/qwen3-embedding-8b")
 
-#: Prefix e5 models expect for a search query (FR-04 AC6).
-EMBEDDING_QUERY_PREFIX: str = "query: "
+#: Prefix before a search query; only e5-style models need one ("query: ") (FR-04 AC6).
+EMBEDDING_QUERY_PREFIX: str = os.getenv("EMBEDDING_QUERY_PREFIX", "")
 
-#: Prefix e5 models expect for an indexed passage (FR-04 AC6).
-EMBEDDING_PASSAGE_PREFIX: str = "passage: "
+#: Prefix before an indexed passage; only e5-style models need one ("passage: ") (FR-04 AC6).
+EMBEDDING_PASSAGE_PREFIX: str = os.getenv("EMBEDDING_PASSAGE_PREFIX", "")
+
+#: OpenRouter provider routing: no training on our data, zero data retention (D-3, FR-23 AC4).
+PROVIDER_PREFERENCES: dict[str, object] = {"data_collection": "deny", "zdr": True}
 
 #: Default reasoning effort passed to the chat model (FR-20 AC1, NFR-03).
 REASONING_EFFORT: str = os.getenv("REASONING_EFFORT", "low")
