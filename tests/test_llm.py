@@ -77,6 +77,29 @@ def test_d3_embedding_calls_carry_provider_preferences(monkeypatch: pytest.Monke
     assert captured["model"] == config.EMBEDDING_MODEL
 
 
+def test_fr20_ac2_chat_model_uses_config_and_provider_preferences(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The chat model comes from config and carries reasoning effort and D-3 routing."""
+    monkeypatch.setenv(config.OPENROUTER_API_KEY_ENV, "sk-test")
+    model: Any = llm.build_chat_model()
+    assert model.model_name == config.CHAT_MODEL
+    assert model.max_tokens == config.MAX_TOKENS
+    assert model.temperature is None  # gpt-5 models reject other temperatures
+    assert model.extra_body == {
+        "reasoning": {"effort": config.REASONING_EFFORT},
+        "provider": config.PROVIDER_PREFERENCES,
+    }
+
+
+def test_nfr05_prompts_are_read_from_markdown_files() -> None:
+    """Prompt text comes from prompts/*.md, never from Python code (NFR-05)."""
+    text = llm.load_prompt("retrieval_plan")
+    assert text.startswith("You build search plans")
+    with pytest.raises(FileNotFoundError):
+        llm.load_prompt("does_not_exist")
+
+
 @pytest.mark.skip(reason="not implemented: NFR-02")
 def test_nfr02_retries_on_rate_limit_then_succeeds() -> None:
     """An HTTP 429 is retried with backoff and the second attempt is returned."""
