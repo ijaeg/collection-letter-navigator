@@ -19,7 +19,7 @@ OpenRouter, Chroma, BM25, Pydantic.
 
 ## The spec is the source of truth
 
-[`PRODUCT_SPEC.md`](PRODUCT_SPEC.md) (v0.1.2) defines everything: functional
+[`PRODUCT_SPEC.md`](PRODUCT_SPEC.md) (v0.2) defines everything: functional
 requirements `FR-01`–`FR-24` with acceptance criteria, non-functional
 requirements `NFR-01`–`NFR-10`, the structured formats in §6, the evaluation in
 §7 and the code structure in §9.

@@ -4,9 +4,9 @@
 |---|---|
 | **Project** | Turing College – AI Engineering, Sprint 2 project ("Building Applications with AI") |
 | **Author** | Ingo Jäger |
-| **Status** | Draft v0.1.2 – 2026-10-16 (changes: see §13) |
+| **Status** | Draft v0.2 – 2026-10-19, after the spike (changes: see §13) |
 | **Audience** | Developer (implementation guide) and Turing College tutor (review guide) |
-| **Stack** | Python 3.13 (uv), Streamlit, LangChain against the OpenRouter API (OpenAI-compatible, chat and embeddings), Chroma, BM25, Pydantic |
+| **Stack** | Python 3.13 (uv), Streamlit, LangChain against the OpenRouter API (OpenAI-compatible, chat and embeddings), Chroma, BM25 (`rank-bm25`), Pydantic |
 | **Time budget** | Estimated effort ≈ 50–60 hours plus learning time; available ≈ 100 hours from Fri 2026-10-16 to Wed 2026-10-28 (8–9 h on weekdays, max. 6 h on weekend days), including tests, evaluation, documentation and review preparation (see §11) |
 
 ---
@@ -136,21 +136,24 @@ A reviewer can try the app without own data.
 #### FR-04 Knowledge base ingestion (Must)
 An offline script builds the knowledge base from the official XML of *gesetze-im-internet.de*.
 
-- AC1: `uv run python scripts/build_index.py` downloads (or reads cached) XML for BGB, ZPO and RDG and indexes only the provisions listed in `data/kb_scope.yaml` (initial scope: BGB §§ 186–193, 194–218, 247, 266, 280, 286–288, 362, 368; ZPO §§ 222, 338–339, 688–703d; RDG provisions on collection services, information duties and collection costs – the exact list is fixed in the spike, §11). BGB §§ 266, 280, 362 and 368 cover the frequent situations "instalments", "creditor's reminder costs" and "already paid".
+- AC1: `uv run python scripts/build_index.py` downloads (or reads cached) XML for BGB, ZPO and RDG and indexes only the provisions listed in `data/kb_scope.yaml` (initial scope: BGB §§ 186–193, 194–218, 247, 266, 280, 286–288, 362, 368; ZPO §§ 222, 338–339, 688–703d; RDG §§ 2, 10, 13a, 13b, 13e, 13f, 16 – collection as a legal service, registration, information duties towards private persons and consumers, reimbursable collection costs, the public register). BGB §§ 266, 280, 362 and 368 cover the frequent situations "instalments", "creditor's reminder costs" and "already paid".
 - AC2: One chunk per section (§); a section longer than a configurable limit (default 2,000 characters) is split by subsection (*Absatz*). No chunk crosses a section boundary.
 - AC3: Every chunk carries the metadata `law`, `section`, `subsection` (or null), `title`, `source_url`, `retrieved_at`.
-- AC4: The index is persisted in Chroma under `data/index/` and **committed to the repository**, so a reviewer does not need to rebuild it (rebuilding costs embedding API calls); the snapshot date and the embedding model are stored in `data/index/manifest.json` and shown in the UI (FR-21 AC6).
+- AC4: The index is persisted in Chroma under `data/index/` and **committed to the repository**, so a reviewer does not need to rebuild it (rebuilding costs embedding API calls); the snapshot date **per law** (the `builddate` of the statute XML) and the embedding model are stored in `data/index/manifest.json` and shown in the UI (FR-21 AC6).
+- AC7: The app and the tests open a temporary **working copy** of the index, never `data/index/` itself: Chroma writes to its files even when it only reads, which would leave the committed index modified after every run (found in the spike; covered by a test).
 - AC5: Running the script twice on the same XML yields the same chunk IDs and chunk count (tested).
-- AC6: Chunks are embedded with the model from D-1; model-specific input conventions (e.g. the `passage: ` / `query: ` prefixes of e5 models) are applied in one place in the code and covered by a unit test.
+- AC6: Chunks are embedded with the model from D-1 (`qwen/qwen3-embedding-8b`, without input prefixes); model-specific input conventions (e.g. the `passage: ` / `query: ` prefixes of e5 models) stay configurable in one place (`config.py`, `llm.PrefixedEmbeddings`) and are covered by unit tests. Changing the embedding model requires rebuilding the index, because questions and chunks must be embedded by the same model.
 
 #### FR-05 Query translation (Must)
 Before retrieval, one LLM call turns the English question (plus triage context) into a `RetrievalPlan` (§6.1).
 
-- AC1: The plan contains 1–4 German search queries using legal terms (e.g. "court letter, two weeks" → "Widerspruch gegen den Mahnbescheid Frist").
+- AC1: The plan contains 2–3 German search queries (never more than 4) using legal terms (e.g. "court letter, two weeks" → "Widerspruch gegen den Mahnbescheid Frist").
 - AC2: The step is a fixed part of the LangChain pipeline, not a tool the model may skip.
 - AC3: The German queries are shown in the RAG panel (FR-18) and in debug output.
 - AC4: Whether query translation is kept as default is decided by the evaluation (§7.2). If it does not improve Hit-Rate@5, the README says so and the step remains switchable (`QUERY_TRANSLATION=on|off`).
 - AC5: Because the `law_filter` (FR-06) is produced by the same call, switching query translation off also switches the filter off: the English question is used directly and the search is unfiltered. This coupling is stated in the README (§7.2).
+- AC6: The prompt (`prompts/retrieval_plan.md`) contains the rules found in the spike (D-7): `rationale` in English; at most two laws in the filter, otherwise `null`; statutory terms only, no facts of the user's case (names, products, amounts, dates); explicit provision references are kept.
+- AC7: Rules that can be expressed deterministically are applied in code, not left to the model: a court letter keeps ZPO in every filter; a filter naming all laws becomes `null`; duplicate queries are dropped; an output that fails validation is retried once, then the user gets a friendly error (NFR-02). Covered by unit tests with a scripted model.
 
 #### FR-06 Structured retrieval (Must)
 - AC1: The `RetrievalPlan` contains an optional `law_filter` (subset of `BGB`, `ZPO`, `RDG`), derived from the question and triage (e.g. court letter → `ZPO` included).
@@ -159,9 +162,9 @@ Before retrieval, one LLM call turns the English question (plus triage context) 
 - AC4: The applied filter is visible in the RAG panel (FR-18).
 
 #### FR-07 Hybrid search (Must) – *optional task Hard 1*
-- AC1: Each German query is run against the vector store (Chroma) and a BM25 index over the same chunks; results are fused with reciprocal rank fusion (or LangChain's ensemble retriever); duplicates across queries are merged.
+- AC1: Each German query is run against the vector store (Chroma) and a BM25 index over the same chunks (built directly with `rank-bm25`; `langchain-community` is being discontinued); each retriever returns up to 20 hits per query, and all lists are fused with reciprocal rank fusion (`1 / (60 + rank)`); duplicates across queries are merged. The BM25 tokenizer lower-cases, keeps section numbers as tokens and strips one common German ending.
 - AC2: The final context has at most *k* chunks (default 6, configurable).
-- AC3: A query naming a provision explicitly (e.g. "§ 199 BGB") returns that section in the top 3 (unit test on the real index).
+- AC3: A query naming a provision explicitly (e.g. "§ 199 BGB" or "BGB § 199") returns that section in the top 3 (unit test on the real index); the keyword search pins explicitly named provisions to the top of its list. Whether they should also be pinned after the fusion is open (D-8).
 - AC4: Vector-only, BM25-only and hybrid are selectable in the developer settings (FR-20) and compared in §7.2.
 
 #### FR-08 Grounded answer (Must) – *optional task Easy 3*
@@ -171,6 +174,7 @@ One LLM call answers the question from the retrieved chunks and may call tools (
 - AC2: The answer lists the IDs of the retrieved chunks it relies on (at least one, unless AC3 applies). The UI shows per cited chunk: provision, title, link and the German text **taken directly from the knowledge base by chunk ID** (collapsible "Legal basis"); the model never writes the displayed source text.
 - AC3: If no retrieved chunk supports an answer, the app says "I could not find this in the knowledge base" and offers the get-help links. It does not answer from general knowledge.
 - AC4: Chunks are passed to the model inside delimiters (`<source id="…">…</source>`); the system prompt states that source text is data, never instructions.
+- AC5: German legal terms appear next to their English explanation ("objection (*Widerspruch*)", "*Einspruch*"), so the user recognises them in the letter (spike E-8: the model translated *Einspruch* as "objection").
 
 #### FR-09 Source and quote check (Must)
 - AC1: Every cited chunk ID must belong to the chunks retrieved for this question; unknown IDs are dropped and counted in §7.4.
@@ -188,7 +192,8 @@ One LLM call answers the question from the retrieved chunks and may call tools (
 - AC5: The loop allows at most 3 tool calls per question; further calls end with a message instead of an endless loop.
 - AC6: A failing tool (exception) does not end the chat: the answer is given without that tool and the failure is shown on the tool card.
 - AC7: The answer text is derived from the `ToolResult` fields ("Based on the dates you provided, and assuming …"); it never states that a claim *is* time-barred or *must* be paid.
-- AC8: Tool calling and the structured final answer (§6.3) are produced either in one call or, if the chosen model cannot combine both reliably, in two steps: a tool-calling loop followed by one final call with structured output. The spike (D-7) decides; the result is recorded in §12.
+- AC8: Tool calling and the structured final answer (§6.3) are produced **in one call** (decided in spike E-8, 2026-10-19): the tools are bound together with `response_format=AnswerWithSources` (`strict=True`), and the model either requests a tool or returns the final answer. If the final message does not validate, one structured-output call over the same messages follows; such fallbacks are counted (§7.4). In the spike, one call saved 3–5 s and ≈ 20 % of the tokens per tool question compared with two steps.
+- AC9: Today's date is passed explicitly in the system prompt; tools receive absolute dates only. If the user gives a relative date ("last Tuesday"), the answer states how it was resolved, or asks back (spike D-7: the provider injected a date on its own, which is not reliable).
 
 #### FR-11 `calculate_objection_deadline` (Must)
 Computes the last day to object to a court payment order or to file *Einspruch* against an enforcement order.
@@ -197,7 +202,7 @@ Computes the last day to object to a court payment order or to file *Einspruch* 
 - AC1: Period of two weeks from service (ZPO §§ 692 (1) no. 3, 700 (1), 339 (1)); computed with ZPO § 222 and BGB §§ 187 (1), 188 (2); if the last day is a Saturday, Sunday or public holiday, the period ends on the next working day (ZPO § 222 (2)).
 - AC2: Public holidays come from the `holidays` package; without `federal_state`, only nationwide holidays are used, and this is listed in `assumptions`.
 - AC3: For `mahnbescheid`, the result notes that an objection is still possible after the period as long as no enforcement order has been issued (ZPO § 694 (1)); for `vollstreckungsbescheid`, that the period is strict.
-- AC4: For `unclear` (FR-01 AC2), the tool uses the stricter reading (`vollstreckungsbescheid`) and lists this in `assumptions`. If the service date comes from the triage, `assumptions` states that the delivery date is used as the assumed date of service.
+- AC4: For `unclear` (FR-01 AC2), the tool uses the stricter reading (`vollstreckungsbescheid`) and lists this in `assumptions`. If the service date comes from the triage or the user's wording ("it came on …"), `assumptions` states that this date is used as the assumed date of service, and the answer repeats the assumption (spike E-8: the model used it silently).
 - AC5: Unit tests with at least 8 date cases, including period ends on a Saturday, on a Sunday, on a public holiday and across the turn of the year, and one `unclear` case.
 
 > The legal rules in FR-11 to FR-13 are verified against the statute texts in the spike (D-4, §12) before implementation.
@@ -272,7 +277,7 @@ An optional panel in `CHAT`: the user pastes the German text of the letter.
 - AC1: The disclaimer "This app provides general legal information, not legal advice." is visible on every screen.
 - AC2: **Deadline first:** if the triage or the Letter Check identifies a court document, the deadline card stays pinned at the top of the chat (FR-01 AC3), and every answer that touches on what to do next ends with a one-line reminder of the deadline.
 - AC3: The app never recommends ignoring a letter (checked by safety test cases, `docs/safety_tests.md`).
-- AC4: Requests for advice in the individual case ("Should I pay?") are answered with the relevant rules, deadlines and the get-help links, without a recommendation (checked by safety test cases).
+- AC4: Requests for advice in the individual case ("Should I pay?") are answered with the relevant rules, deadlines and the get-help links, without a recommendation (checked by safety test cases). Answers state facts ("the period ends on 28 October 2026"), never instructions ("file an objection by …", "pay …") – in spike E-8 such instructions appeared without being asked for, so the answer prompt forbids them explicitly.
 - AC5: Get-help links (consumer advice centres, free debt counselling) are shown in the footer and in every refusal; the links are checked before submission.
 - AC6: The knowledge-base snapshot date and the base-rate table date are shown in the sidebar.
 - AC7: Out-of-scope topics (garnishment, insolvency, B2B, SCHUFA disputes) are recognised and answered with a short refusal and referral.
@@ -312,7 +317,7 @@ All prompts are Markdown files under `prompts/`; no prompt text is in `.py` file
 | Call | Requirement | Prompt file | Output | Notes |
 |---|---|---|---|---|
 | Query translation + filter | FR-05, FR-06 | `prompts/retrieval_plan.md` | JSON `RetrievalPlan` | Small, fast model allowed |
-| Answer with tools | FR-08, FR-10 | `prompts/answer.md` | Tool calls, then JSON `AnswerWithSources` | Multi-turn: `system`, `user`, `assistant` (tool calls), `tool` (results) |
+| Answer with tools | FR-08, FR-10 | `prompts/answer.md` | Tool calls or JSON `AnswerWithSources`, in the same call (FR-10 AC8) | Multi-turn: `system`, `user`, `assistant` (tool calls), `tool` (results) |
 | Letter extraction | FR-16 | `prompts/letter_extraction.md` | JSON `LetterFacts` | Input is the redacted letter |
 
 ### 5.1 Roles per call
@@ -320,7 +325,7 @@ All prompts are Markdown files under `prompts/`; no prompt text is in `.py` file
 | Call | System | User | Assistant / Tool messages | Output type |
 |---|---|---|---|---|
 | Retrieval plan | Instructions: legal search terms, available laws, filter rules | Question + triage context in delimiters | – | JSON |
-| Answer | Domain rules (information not advice, deadline first, cite sources, English), tool policy | Question + triage + retrieved sources in delimiters + prior chat turns | **Assistant** messages with tool calls, **tool** messages with `ToolResult` JSON | Tool calls, then JSON |
+| Answer | Today's date, domain rules (information not advice, facts not instructions, deadline first, cite sources, English), tool policy | Question + triage + retrieved sources in delimiters + prior chat turns | **Assistant** messages with tool calls, **tool** messages with `ToolResult` JSON | Tool calls, then JSON |
 | Letter extraction | Extraction rules, "null if not found" | Redacted letter in delimiters | – | JSON |
 
 The answer call demonstrates the full tool-calling cycle: the model emits a tool call (`assistant`), the app executes it and returns the result as a `tool` message, and the model writes the final answer from both the sources and the tool results.
@@ -344,9 +349,9 @@ All formats are Pydantic models, requested via LangChain's structured-output sup
 
 ```text
 RetrievalPlan
-├── queries_de: list[str]                    (1–4)
-├── law_filter: list["BGB" | "ZPO" | "RDG"] | null
-└── rationale: str                           (one sentence, shown in the RAG panel)
+├── queries_de: list[str]                    (1–4; the prompt asks for 2–3)
+├── law_filter: list["BGB" | "ZPO" | "RDG"] | null   (at most two laws in practice)
+└── rationale: str                           (one sentence in English, shown in the RAG panel)
 ```
 
 ### 6.2 `ToolResult` (tool contract)
@@ -406,7 +411,7 @@ Created **before** prompts and retrieval settings are tuned:
 
 | File | Content |
 |---|---|
-| `eval/dev_questions.json` | 10 development questions used in the spike and for tuning (same schema as below). **Not** part of the test set. |
+| `eval/dev_questions.json` | 10 development questions used in the spike and for tuning (same schema as below, plus an `id`). **Not** part of the test set. Results: `eval/dev_results.csv`. |
 | `eval/retrieval_questions.json` | 20–25 English lay questions (test set), each with `question_en`, `sender` (as in §6.4), the expected provisions `expected` (e.g. `["ZPO § 692", "ZPO § 694"]`) and a `category`; written after the spike and not used for tuning. Categories follow the "common situations" (FR-03 AC4): `deadline`, `disputed`, `amount_too_high`, `already_paid`, `pay_later`, `instalments`, `fees`, `interest`, `limitation`, `legitimacy`, `ignore_consequences`, `out_of_scope` – at least 2 questions for each of the first six and 1 for each of the others |
 | `eval/tool_cases.json` (Should) | ≈ 15 questions with the expected tool and arguments (or "no tool") |
 | `eval/letters/` (Should) | 6–8 fictional letters with annotated `LetterFacts` |
@@ -415,7 +420,7 @@ Created **before** prompts and retrieval settings are tuned:
 
 ### 7.2 Retrieval evaluation (Must)
 
-`uv run python eval/run_retrieval_eval.py` runs every configuration on every question and writes `eval/retrieval_results.csv`.
+`uv run python eval/run_retrieval_eval.py` runs every configuration on every question and writes `eval/retrieval_results.csv`. Every question runs **at least twice** (`--runs`, default 2), because LLM output varies between runs (D-3); the summary reports the mean and the lowest and highest run. The retrieval plan is created once per question and run and shared by R2 and R4, so these two differ only in the retrieval mode. Several chunks of one section count as one provision.
 
 | Configuration | Query translation | Retrieval |
 |---|---|---|
@@ -432,6 +437,17 @@ Created **before** prompts and retrieval settings are tuned:
 | Latency and cost | Mean seconds and USD per question (retrieval plan included) | reported only |
 
 **Winner rule:** highest Hit-Rate@5; ties broken by MRR@10, then by cost. The winner becomes the default. The result is reported **whatever it is**: if query translation does not help with a multilingual embedding model, that is a documented finding.
+
+**Spike gate result (development questions, 2 runs, 2026-10-19):**
+
+| Configuration | Hit-Rate@5 (run 1 / run 2) | MRR@10 | Filter accuracy | s / question |
+|---|---|---|---|---|
+| R1 vector | 80 % (80 / 80) | 0.53 | – | 0.5 |
+| R2 translation + vector | 85 % (80 / 90) | 0.62 | 100 % | 7.4 |
+| R3 hybrid | 60 % (60 / 60) | 0.49 | – | 0.9 |
+| R4 translation + hybrid | **85 % (80 / 90)** | **0.63** | 100 % | 7.6 |
+
+Provisional default: **R4** (tie on Hit-Rate@5, ahead on MRR@10). Findings: the embedding model alone is strong cross-lingually (R1); query translation adds half a question on 10 questions at ≈ 7 s per question; BM25 helps only with German queries (R3 < R1). Most misses are in the limitation block BGB §§ 194–218, where 25 similar chunks compete. Details in `spikes/NOTES.md`. These numbers are development results; the default is fixed by the test set.
 
 **Known limitation of the design:** R1 and R3 run without query translation and therefore **without metadata filter** (FR-05 AC5). The comparison R1 ↔ R2 measures query translation and filtering together; their individual effects are not separated. Filter accuracy is measured on the R2/R4 runs.
 
@@ -460,16 +476,16 @@ Created **before** prompts and retrieval settings are tuned:
 
 | ID | Requirement | Acceptance criterion |
 |---|---|---|
-| NFR-01 Setup | The app starts with **one API key** and two commands | `uv sync` and `uv run streamlit run app.py` work on a fresh clone with `OPENROUTER_API_KEY` set; chat **and embeddings** run via OpenRouter; the index is committed (FR-04 AC4); no other account or local model required. *Fallback if D-1 fails:* "one API key plus a one-time download of a small local embedding model", stated in the README |
+| NFR-01 Setup | The app starts with **one API key** and two commands | `uv sync` and `uv run streamlit run app.py` work on a fresh clone with `OPENROUTER_API_KEY` set; chat **and embeddings** run via OpenRouter; the index is committed (FR-04 AC4); no other account or local model required. The key must allow the embedding model `qwen/qwen3-embedding-8b`: keys with workspace guardrails (such as the course key) can block models, which the README states together with the fallback `openai/text-embedding-3-small` (requires rebuilding the index, FR-04 AC6). The `.env` file is loaded before `config.py` reads environment variables, so settings in `.env` take effect |
 | NFR-02 Error handling | No stack trace ever reaches the UI | OpenRouter errors, timeouts (60 s), HTTP 429/5xx (retry with exponential backoff, max. 2 retries), invalid JSON (one retry) and tool failures show a friendly message; failures are never cached |
 | NFR-03 Reasoning token budget | Reasoning tokens count against `max_tokens` | Default `max_tokens` 4,000; `finish_reason = "length"` with empty content shows a specific message (as in Sprint 1) |
-| NFR-04 Responsiveness | The user always sees progress, and the UI never hangs | Step labels per FR-17 AC2 during every LLM, embedding or tool call; a timeout or error ends the progress indicator with a message and leaves the chat usable (tested with a mocked timeout); a typical question is answered within 20 s (measured in §7.2, reported) |
+| NFR-04 Responsiveness | The user always sees progress, and the UI never hangs | Step labels per FR-17 AC2 during every LLM, embedding or tool call; a timeout or error ends the progress indicator with a message and leaves the chat usable (tested with a mocked timeout); a typical question is answered within 20 s (measured in §7.2, reported); budget from the spike: retrieval plan ≈ 7 s, answer call with one tool ≈ 5–8 s |
 | NFR-05 Code structure | UI, LLM client, retrieval, tools, guards, prompts and evaluation are separate modules | See §9; `app.py` contains no prompt text and no retrieval logic |
 | NFR-06 Tests | Deterministic logic and LLM-related logic are tested | Tests for: tools (reference cases), tool contract and invalid arguments, retrieval filter, chunking and ingestion idempotence, quote check, redaction, guards, the tool-calling loop and the pipeline with a **mocked LLM client**; `uv run pytest` passes |
 | NFR-07 Tooling and CI | Quality checks run on every PR | `ruff` (lint + format) and a type checker configured in `pyproject.toml`; `pytest` with coverage report; a GitHub Actions workflow runs ruff and pytest on every pull request – set up on day 1 |
 | NFR-08 Documentation | A reviewer understands the project from the README alone | README contains the sections listed in §10.2 |
 | NFR-09 Language | UI and documentation in English | No German UI strings except quoted legal text and German terms with English explanation |
-| NFR-10 Reproducibility | Results can be reproduced | Knowledge-base snapshot date, model names and settings are recorded in every evaluation CSV |
+| NFR-10 Reproducibility | Results can be reproduced | Knowledge-base snapshot date, model names and settings are recorded in every evaluation CSV; each question runs at least twice and the spread is reported (§7.2) |
 
 ---
 
@@ -500,7 +516,7 @@ collection-letter-navigator/
 │   ├── answer.md
 │   └── letter_extraction.md
 ├── scripts/build_index.py
-├── spikes/                                 # throwaway spike scripts (D-1, D-3, D-7, E-8); kept as a record
+├── spikes/                                 # spike scripts (D-1, D-3, D-7, E-8) and NOTES.md; kept as a record
 ├── data/
 │   ├── kb_scope.yaml                       # provisions to index
 │   ├── base_rates.csv                      # Bundesbank base rates with source
@@ -508,6 +524,7 @@ collection-letter-navigator/
 │   └── samples/letters/                    # fictional demo letters
 ├── eval/
 │   ├── dev_questions.json                  # spike / tuning only
+│   ├── dev_results.csv                     # spike gate run on the development questions
 │   ├── retrieval_questions.json            # test set
 │   ├── tool_cases.json
 │   ├── run_retrieval_eval.py
@@ -578,27 +595,26 @@ The target "at least 2 medium and 1 hard" is met by **Must** requirements alone 
 
 ---
 
-## 11. Plan (as of 2026-10-15)
+## 11. Plan (as of 2026-10-19)
 
-**Capacity:** 8–9 h on weekdays, max. 6 h on Saturdays and Sundays, from Fri 2026-10-16. **Milestones:** spike gate on **Sun 2026-10-18** (evening); spec v0.2 on Mon 2026-10-19 (timebox 2 h); feature freeze on **Sun 2026-10-25** (evening); *Submit Project* and review booking on **Wed 2026-10-28**; hard deadline **Mon 2026-11-02**.
+**Capacity:** 8–9 h on weekdays, max. 6 h on Saturdays and Sundays. **Milestones:** spike gate passed on **Mon 2026-10-19**; spec v0.2 on Mon 2026-10-19; feature freeze on **Sun 2026-10-25** (evening); *Submit Project* and review booking on **Wed 2026-10-28**; hard deadline **Mon 2026-11-02**.
 
 | Date | Scope | Done when |
 |---|---|---|
-| Fri 10-16 (8–9 h) | Scaffolding from this spec (Claude Code, structure of §9, stubs only); uv project, ruff, type checker, pytest, GitHub Actions (NFR-07, timebox 2 h); D-1 embedding check via OpenRouter; one structured-output call via LangChain (D-7); one tool call (D-7); D-3 data-policy check | Scaffold merged by PR with green CI; D-1 decided; structured output and tool call work in `spikes/` |
-| Sat 10-17 (6 h) | `ingest.py` + `build_index.py` for the BGB and ZPO scope; Chroma index; 10 development questions in `eval/dev_questions.json` (§7.1) | Index built; manifest written; dev questions with expected provisions |
-| Sun 10-18 (6 h) | End-to-end spike: 10 dev questions, vector vs. hybrid, with and without query translation; test "tools + structured output in one call" (FR-10 AC8); verify legal rules for FR-11–FR-13 (D-4) | **Gate in the evening** (see below); spike results in `spikes/NOTES.md` |
-| Mon 10-19 | Spec v0.2 with spike results (max. 2 h); test set `eval/retrieval_questions.json` (written now, not used for tuning); RDG added to the index; FR-05, FR-06 in the pipeline | Spec v0.2 committed; test set complete; filtered retrieval with tests |
-| Tue 10-20 | FR-07 hybrid search; tool contract; FR-11, FR-12, FR-13 with reference tests; `base_rates.csv` | All tool and retrieval tests pass |
-| Wed 10-21 | FR-08, FR-09, FR-10: answer call with tool-calling loop, source and quote check, mocked pipeline tests | A question with tool use runs end to end in tests |
+| Fri 10-16 ✓ | Scaffolding, CI, spikes D-1, D-3, D-7; evening: statute XML, chunking concept, `kb_scope.yaml` | Done: scaffold merged with green CI; D-1, D-3, D-7 recorded in `spikes/NOTES.md` |
+| Fri 10-16 – Sun 10-18 ✓ | FR-04: parsing, chunking, embeddings, index and manifest for BGB, ZPO **and RDG** (84 chunks); 10 development questions; D-4 verified against the statute XML | Done: index committed; weekend plan finished on Friday evening |
+| Mon 10-19 ✓ | FR-05, FR-06, **FR-07** (moved forward from Tuesday) with tests; retrieval evaluation script (§7.2); spike gate on the development questions; spike E-8; spec v0.2; test set `eval/retrieval_questions.json` (written after the gate, not used for tuning) | Gate passed (85 %); E-8 decided; spec v0.2 and test set committed |
+| Tue 10-20 | Tool contract; FR-11, FR-12, FR-13 with reference tests and tool briefs (`docs/tools/`); `base_rates.csv` (D-5); D-8 tuning on the development questions (timebox 1 h) | All tool tests pass; D-8 decided |
+| Wed 10-21 | FR-08, FR-09, FR-10: answer call in one call with fallback (FR-10 AC8), `prompts/answer.md` with the E-8 findings, source and quote check, mocked pipeline tests | A question with tool use runs end to end in tests |
 | Thu 10-22 | UI: FR-01, FR-02, FR-03, FR-17, FR-19; FR-21, FR-22, FR-23 | All *Must* FRs demonstrable in the browser |
-| Fri 10-23 | Retrieval evaluation run (§7.2), winner as default; safety tests (FR-21 AC8) | `retrieval_results.csv` complete |
+| Fri 10-23 | Retrieval evaluation on the test set (§7.2), winner as default; safety tests (FR-21 AC8) | `retrieval_results.csv` complete |
 | Sat 10-24 (6 h) | Letter Check (FR-16, Should); FR-18 RAG panel | Demo letter produces a checklist |
 | Sun 10-25 (6 h) | Tool-calling evaluation (§7.3); FR-24; FR-14; **feature freeze** in the evening | All *Should* items done or dropped |
 | Mon 10-26 – Tue 10-27 | README with all sections, screenshots, final test pass, bug fixes only | README complete; all AC of *Must* requirements checked |
 | Wed 10-28 | Merge to `main` by PR, *Submit Project*, book the review slot; rehearse "Design decisions" | Submitted; review slot booked |
 | Thu 10-29 – Mon 11-02 | Buffer; review; fixes requested by the reviewer only | Review passed before the deadline |
 
-**Spike gate (Sun 2026-10-18, evening):** if Hit-Rate@5 on the 10 development questions stays **below 60 %** with the best configuration, the domain is **not** switched. Instead the scope is reduced: the knowledge base is limited to the ZPO summary payment procedure and the BGB limitation rules, explicit section references get extra weight in the keyword search, and FR-11 carries more of the product value. The measured value is reported honestly in the README (R-4, §7.5). Note: with 10 questions, one question equals 10 percentage points, and the labels come from one person – the gate is a sanity check, not a statistical test.
+**Spike gate (held on Mon 2026-10-19, passed):** the rule was: if Hit-Rate@5 on the 10 development questions stays **below 60 %** with the best configuration, the scope is reduced (knowledge base limited to the ZPO summary payment procedure and the BGB limitation rules) instead of switching the domain. Result: **85 %** with R2 and R4 (§7.2), so the scope stays. Note: with 10 questions, one question equals 10 percentage points, and the labels come from one person – the gate was a sanity check, not a statistical test.
 
 **Cut rule:** anything not working by the end of Sat 2026-10-24 that is not a *Must* is dropped and listed under "Ideas for improvement", in this order: FR-16 Letter Check, FR-18, FR-24, §7.3, FR-14. §7.2 and FR-11 to FR-13 are *Must* and are never cut. No new features after the freeze.
 
@@ -610,25 +626,40 @@ The schedule includes the agreed way of working for every new AI concept (concep
 
 | ID | Topic | Decision / risk |
 |---|---|---|
-| D-1 | Embedding model | **Decision (2026-10-15):** embeddings via OpenRouter with the same API key; candidate `intfloat/multilingual-e5-large` (listed on OpenRouter; requires the prefixes `query: ` / `passage: `). Verified on Fri 10-16 with a cross-lingual check in `spikes/`. Fallback if unavailable: a small local multilingual model, with NFR-01 relaxed as stated there. A local model with only a committed index is **not** an option, because every user question must be embedded at runtime with the same model. |
-| D-2 | Default chat model | Chosen in the spike from models available via OpenRouter that support tool calling and structured output; candidates include `openai/gpt-5-mini`. Recorded here after the spike. |
-| D-3 | Data retention | Check whether OpenRouter can restrict routing to providers without data retention/training; enable if possible (FR-23 AC4). |
-| D-4 | Legal rules | Deadline, limitation and interest rules (FR-11–FR-13) are verified against the statute text and public consumer guides before implementation; a one-page tool brief per tool in `docs/tools/`. |
-| D-5 | Base-rate data | Source, format and update date of the Bundesbank base-rate series; stored as CSV with source and retrieval date. |
+| D-1 | Embedding model | **Decided (2026-10-16):** `qwen/qwen3-embedding-8b` via OpenRouter, without input prefixes; fallback `openai/text-embedding-3-small` (`EMBEDDING_MODEL`, index rebuild required). The original candidate `intfloat/multilingual-e5-large` is blocked by the course key's guardrails. Chosen by a cross-lingual check (largest margin between correct and runner-up statement) and confirmed on the real chunks in the spike gate (R1: 80 % Hit-Rate@5 with the English question alone). |
+| D-2 | Default chat model | **Decided:** `openai/gpt-5-mini`, reasoning effort `low`, temperature unset (the model rejects other values); structured output, tool calling and both combined work (D-7, E-8). |
+| D-3 | Data retention | **Decided (2026-10-16):** OpenRouter provider routing `{"data_collection": "deny", "zdr": true}` for all chat **and embedding** calls (set once in `config.py`); tested: eligible providers exist for both models (FR-23 AC4). |
+| D-4 | Legal rules | **Verified (2026-10-16)** against the statute XML: ZPO §§ 692 (1) no. 3, 694, 699, 700 (1), 339, 222 (2); BGB §§ 187 (1), 188 (2), 195, 197 (1) nos. 3–4, 199 (1), 204 (1) no. 3, 212 (1) no. 1, 247, 286, 288 (1), (2), (5). Open: one-page tool brief per tool in `docs/tools/` (Tue 10-20). BGB § 247 states only the initial rate, so current rates come from the Bundesbank table (D-5). |
+| D-5 | Base-rate data | Source, format and update date of the Bundesbank base-rate series; stored as CSV with source and retrieval date (Tue 10-20). |
 | D-6 | Public holidays | Nationwide holidays by default; federal state as optional input (FR-11 AC2). Holidays at the court's location are what legally matters – stated in `assumptions`. |
-| D-7 | LangChain API | Exact LangChain v1 interfaces for structured output, tool binding and hybrid retrieval are verified in the spike, including whether tool calling and structured output work in **one** call with the chosen model (FR-10 AC8); otherwise the two-step variant is used. |
+| D-7 | LangChain API | **Decided (2026-10-16/19):** structured output via `with_structured_output(..., method="json_schema")`; tool calling via `bind_tools` and a `ToolMessage` loop; both in **one** call via `bind_tools(..., response_format=..., strict=True)` (spike E-8, FR-10 AC8); BM25 directly with `rank-bm25` (FR-07 AC1). |
+| D-8 | Retrieval tuning (open) | Two ideas from the spike gate, tried on the development questions only (Tue 10-20, timebox 1 h): (1) pin provisions that a query names explicitly also **after** the fusion (at most two slots) – helps the limitation questions, but relies on the model knowing correct section numbers; (2) a short list of lay term → statutory term pairs in `prompts/retrieval_plan.md` (e.g. instalments → *Teilleistungen*). Kept only if Hit-Rate@5 or MRR@10 improve without new misses; the decision and its risk go into the README. |
 | R-1 | Wrong legal statement with a source | Tool contract, quote check, "no result instead of a wrong result", ground-truth cross-check, safety tests |
 | R-2 | Line between information and advice (RDG) | No recommendations; tools give provisional, input-based checks with assumptions; referral to counselling services |
 | R-3 | Old claims under old law | Out of scope; tools refuse dates outside their supported period; interest uses historical base rates |
-| R-4 | Query translation brings no measurable gain | Measured with an open outcome (§7.2) and reported as a finding |
+| R-4 | Query translation brings no measurable gain | Measured with an open outcome (§7.2) and reported as a finding. Spike gate: +5 points Hit-Rate@5 at ≈ 7 s per question – small; the step stays switchable (FR-05 AC4) |
 | R-5 | Domain does not work technically | Spike gate on 10-18 with scope reduction instead of a domain switch (§11) |
 | R-6 | Reviewer cannot run the app | NFR-01 is a hard constraint; demo cases (FR-03) |
 | R-7 | Evaluation validity | Small dataset, one labeler without legal training; mitigated by cross-check against statute text and public consumer guides; development and test questions kept separate; stated in the README |
 | R-8 | Scope larger than time | Dated plan, cut rule and order, early feature freeze |
+| R-9 | Model availability with the reviewer's key | Course keys with guardrails can block models (found in D-1); README names the required models and the fallback; models are switchable via environment variables |
+| R-10 | Committed index changes on use | Chroma writes to its files even when reading; mitigated by a working copy (FR-04 AC7) |
 
 ---
 
 ## 13. Change log
+
+**v0.2 (2026-10-19)** – results of the spike (D-1, D-3, D-4, D-7, E-8, spike gate; details in `spikes/NOTES.md`):
+
+- **D-1, NFR-01, FR-04 AC6:** embedding model `qwen/qwen3-embedding-8b` without prefixes (e5 blocked by the course key's guardrails); fallback `openai/text-embedding-3-small` with index rebuild; README note on guardrails; `.env` loaded before `config.py` reads settings.
+- **D-2, D-3, D-4, D-7:** decided or verified (§12); D-8 added for the open retrieval tuning.
+- **FR-04 AC1, AC4, AC7:** RDG scope fixed (§§ 2, 10, 13a, 13b, 13e, 13f, 16); snapshot date per law from the XML `builddate`; the index is opened only as a working copy.
+- **FR-05 AC1, AC6, AC7, §6.1:** 2–3 queries; prompt rules from the spike; deterministic filter rules in code.
+- **FR-07 AC1, AC3:** BM25 directly with `rank-bm25`; fusion parameters; explicit provision references pinned in the keyword list.
+- **FR-08 AC5, FR-10 AC8, AC9, FR-11 AC4, FR-21 AC4, §5:** findings from E-8 – tools and structured answer in one call with a fallback; today's date in the system prompt; German terms kept; assumed date of service repeated; facts, never instructions.
+- **§7.2, NFR-04, NFR-10:** every question runs at least twice; spike gate results and provisional default R4; latency budget from the spike.
+- **§9, §11:** `eval/dev_results.csv`; plan updated – FR-07 done on Monday, Tuesday starts with the tools; gate passed with 85 %.
+- **§12:** R-4 updated; R-9 (model availability) and R-10 (index changes on use) added.
 
 **v0.1.2 (2026-10-16)** – coverage review of typical user situations (senders, letter types, debtor reactions):
 
