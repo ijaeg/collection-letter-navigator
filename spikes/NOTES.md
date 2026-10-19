@@ -106,9 +106,37 @@ Run: `uv run python eval/run_retrieval_eval.py --questions eval/dev_questions.js
 1. Pin provisions named explicitly in a query **after** the fusion (at most two slots), not only inside the BM25 list. Risk: relies on the model knowing the right section numbers; a wrong number puts a wrong provision on top. Would need a README note as a design decision.
 2. Add a short list of lay term → statutory term pairs to `prompts/retrieval_plan.md` (e.g. instalments → Teilleistungen, too old → Verjährung) – general vocabulary, not tied to single questions.
 
+## E-8 Tool calling plus structured answer: one call or two? (Mon 10-19)
+
+Script: `spikes/tools_with_structured_output_check.py`, `openai/gpt-5-mini`, effort low, provider options of D-3; one tool `add_weeks` (two weeks, weekend shift; holidays ignored in the spike); three questions, one run.
+
+- **Variant A (one call):** `bind_tools(tools, response_format=Answer, strict=True)` – the model either requests a tool or returns the final answer as JSON in the same call.
+- **Variant B (two steps):** plain tool-calling loop, then one extra call with `with_structured_output(Answer)`.
+
+| Question | A: calls / seconds / tokens | B: calls / seconds / tokens |
+|---|---|---|
+| Court payment order delivered 2026-10-14 – until when to object? (tool) | 2 / 5.5 / 768 | 3 / 10.9 / 997 |
+| What is a Mahnbescheid? (no tool) | 1 / 9.3 / 575 | 2 / 9.2 / 992 |
+| Enforcement order came 2026-10-09 – last day for Einspruch? (tool) | 2 / 7.8 / 912 | 3 / 11.0 / 1135 |
+
+- Both variants: 3/3 valid answers; the model called `add_weeks` for both deadline questions and did not calculate itself; both dates correct (2026-10-28, 2026-10-23).
+- A saves one LLM call per question: 3–5 s and ≈ 20 % tokens on tool questions. With the retrieval plan (≈ 7 s, spike gate) this keeps a typical question closer to the 20 s of NFR-04.
+
+### Decision
+
+- **FR-10 AC8: variant A (one call).** Safeguard: if the final message does not validate as `AnswerWithSources`, one structured-output call over the same messages follows (variant B as fallback, counted in §7.4).
+- Limits: 3 questions, one run, one model. The tool-calling evaluation (§7.3) re-checks this on ≈ 15 cases.
+
+### Findings for `prompts/answer.md` (FR-08, FR-10, FR-21)
+
+- **Recommendations slip in:** "To stop the collection, file a written objection …", "If you want to contest it, file the Einspruch by that date …" → the prompt must state facts ("the period ends on …"), never instructions (FR-21, RDG line).
+- **General knowledge:** "What is a Mahnbescheid?" was answered without sources (no retrieval in the spike) → in the app, answers come from the retrieved chunks only (FR-08 AC3).
+- **Silent assumption:** "the enforcement order came on …" was used as the date of service without saying so → the tool lists this in `assumptions` (FR-11 AC4), and the answer repeats it.
+- Terminology: the model calls an *Einspruch* an "objection" → the answer prompt keeps the German term next to the English one ("objection (Einspruch)").
+
 ## Open points for the next days
 
 - Sat 10-17: build the index for the BGB and ZPO scope (FR-04) with `qwen/qwen3-embedding-8b`; write the 10 development questions (`eval/dev_questions.json`).
 - Sun 10-18: end-to-end spike – confirm D-1 on real chunks (optionally against `openai/text-embedding-3-small`), test E-8 (tools + structured output in one call), test the provider options for embeddings (D-3), measure latency and cost per question.
 - Spec v0.2 (Mon 10-19): D-1 decision, NFR-01 guardrail note, `.env.example`/`config.py` (model, empty prefixes), rules for `prompts/retrieval_plan.md`, today's date in the system prompt (FR-10), BM25 directly with `rank-bm25` instead of `langchain-community` (deprecation warning), load `.env` before `config.py` reads environment variables, provider options for data retention (D-3), evaluation runs each question at least twice (§7.2).
-- Done: provider options for embeddings (D-3) work – the index was built with them on Fri 10-16. Spike gate passed on Mon 10-19 (see above). Still open: E-8 (tools + structured output in one call) → Mon 10-19 afternoon.
+- Done: provider options for embeddings (D-3) work – the index was built with them on Fri 10-16. Spike gate passed on Mon 10-19 (see above). E-8 decided on Mon 10-19 (variant A, see above). All spike items are closed; next: spec v0.2.
