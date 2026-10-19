@@ -21,7 +21,7 @@ from dotenv import load_dotenv
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
-from langchain_openai import OpenAIEmbeddings
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from pydantic import SecretStr
 
 from collection_letter_navigator import config
@@ -123,7 +123,7 @@ def build_chat_model(
     *,
     reasoning_effort: str | None = None,
     max_tokens: int | None = None,
-    temperature: float = 0.0,
+    temperature: float | None = None,
 ) -> BaseChatModel:
     """Create the LangChain chat model pointed at OpenRouter.
 
@@ -131,7 +131,8 @@ def build_chat_model(
         model: Model identifier; defaults to :data:`config.CHAT_MODEL`.
         reasoning_effort: Reasoning effort; defaults to :data:`config.REASONING_EFFORT`.
         max_tokens: Token ceiling; defaults to :data:`config.MAX_TOKENS`.
-        temperature: Sampling temperature; deterministic by default.
+        temperature: Sampling temperature; None leaves the provider default,
+            because reasoning models such as ``gpt-5-mini`` reject other values.
 
     Returns:
         A configured chat model, with provider routing restricted to providers
@@ -142,7 +143,38 @@ def build_chat_model(
 
     Related: FR-20 AC2, FR-23 AC4, NFR-03, §12 D-2, §12 D-3
     """
-    raise NotImplementedError("FR-20 AC2: build the OpenRouter chat model from config")
+    return ChatOpenAI(
+        model=model or config.CHAT_MODEL,  # AI: the chat model that answers and plans
+        base_url=config.OPENROUTER_BASE_URL,
+        api_key=SecretStr(get_api_key()),
+        max_completion_tokens=max_tokens or config.MAX_TOKENS,  # AI: reasoning tokens count too
+        temperature=temperature,
+        timeout=config.REQUEST_TIMEOUT_SECONDS,
+        max_retries=config.MAX_RETRIES,
+        extra_body={
+            "reasoning": {"effort": reasoning_effort or config.REASONING_EFFORT},
+            "provider": config.PROVIDER_PREFERENCES,  # D-3: no training, zero data retention
+        },
+    )
+
+
+def load_prompt(name: str) -> str:
+    """Read one prompt file from ``prompts/``.
+
+    All prompt text lives in Markdown files, never in ``.py`` files (NFR-05).
+
+    Args:
+        name: File name without extension, e.g. ``"retrieval_plan"``.
+
+    Returns:
+        The prompt text.
+
+    Raises:
+        FileNotFoundError: If the prompt file does not exist.
+
+    Related: NFR-05, §5
+    """
+    return (config.PROMPTS_DIR / f"{name}.md").read_text(encoding="utf-8").strip()
 
 
 def build_embeddings(model: str | None = None) -> Embeddings:

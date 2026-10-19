@@ -1,6 +1,6 @@
 # Spike notes
 
-Record of the spike results (Fri 2026-10-16 to Sun 2026-10-18). Feeds spec v0.2.
+Record of the spike results (Fri 2026-10-16 to Mon 2026-10-19). Feeds spec v0.2.
 
 ## D-1 Embedding model (Fri 10-16)
 
@@ -71,8 +71,44 @@ Margin = score of the correct statement minus score of the runner-up (per questi
 - Not yet covered: embedding calls → pass the same provider options via `model_kwargs={"extra_body": ...}`, test on Sun 10-18.
 - **Decision:** both options on by default for all chat calls (FR-23 AC4), set once in `llm.py`/`config.py`; embeddings to follow after Sunday's test.
 
+## Spike gate: retrieval on the development questions (Mon 10-19)
+
+Run: `uv run python eval/run_retrieval_eval.py --questions eval/dev_questions.json --output eval/dev_results.csv` – 10 development questions, 2 runs, 4 configurations (§7.2); index snapshot 2026-09-26 (BGB), `qwen/qwen3-embedding-8b`, `openai/gpt-5-mini`; no errors, no filter fallback.
+
+| Config | Query translation | Retrieval | Hit-Rate@5 | Run 1 / run 2 | MRR@10 | Filter accuracy | s / question |
+|---|---|---|---|---|---|---|---|
+| R1 | off | vector | 80 % | 80 / 80 | 0.53 | – | 0.5 |
+| R2 | on | vector | 85 % | 80 / 90 | 0.62 | 100 % | 7.4 |
+| R3 | off | hybrid | 60 % | 60 / 60 | 0.49 | – | 0.9 |
+| R4 | on | hybrid | **85 %** | 80 / 90 | **0.63** | 100 % | 7.6 |
+
+### Decision
+
+- **Gate passed:** best configuration 85 % ≥ 60 %. No scope reduction (§11).
+- **Provisional default: R4** (tie with R2 on Hit-Rate@5, R4 ahead on MRR@10 – winner rule of §7.2). Final choice on the test set (Fri 10-23).
+
+### Observations
+
+- Qwen is strong cross-lingually on its own: the English question finds an expected provision in 8 of 10 cases (R1).
+- Query translation adds +5 points Hit-Rate@5 and +0.09 MRR – half a question on 10 questions, not a reliable difference. It costs ≈ 7 s per question (one LLM call), a third of the 20 s budget of NFR-04.
+- BM25 only helps with German queries: R3 (English question, hybrid) is worse than R1, because English words add noise to the keyword list.
+- Filter accuracy 100 %; the model kept to at most two laws.
+- Run-to-run variation as expected from D-3: R2 and R4 differ by one question between runs.
+
+### Misses
+
+- **D05, D06 (limitation):** the expected BGB §§ 195/199 lose against the 25 similar chunks of §§ 194–218, mostly BGB § 200 ("Beginn anderer Verjährungsfristen"). The model even writes "§195 BGB" / "§199 BGB" into the queries; BM25 pins them to rank 1 of its own list, but in the fusion a single first place loses to a chunk that ranks high in all six lists.
+- **D10 (instalments):** the queries say "Ratenzahlung", the statute says "Teilleistungen" (BGB § 266); in run 1 § 266 is not retrieved at all.
+- **D02 (R1):** the English question finds ZPO § 699 only at rank 6; the translated queries fix it.
+
+### Tuning ideas (development questions only, then decided in spec v0.2)
+
+1. Pin provisions named explicitly in a query **after** the fusion (at most two slots), not only inside the BM25 list. Risk: relies on the model knowing the right section numbers; a wrong number puts a wrong provision on top. Would need a README note as a design decision.
+2. Add a short list of lay term → statutory term pairs to `prompts/retrieval_plan.md` (e.g. instalments → Teilleistungen, too old → Verjährung) – general vocabulary, not tied to single questions.
+
 ## Open points for the next days
 
 - Sat 10-17: build the index for the BGB and ZPO scope (FR-04) with `qwen/qwen3-embedding-8b`; write the 10 development questions (`eval/dev_questions.json`).
 - Sun 10-18: end-to-end spike – confirm D-1 on real chunks (optionally against `openai/text-embedding-3-small`), test E-8 (tools + structured output in one call), test the provider options for embeddings (D-3), measure latency and cost per question.
 - Spec v0.2 (Mon 10-19): D-1 decision, NFR-01 guardrail note, `.env.example`/`config.py` (model, empty prefixes), rules for `prompts/retrieval_plan.md`, today's date in the system prompt (FR-10), BM25 directly with `rank-bm25` instead of `langchain-community` (deprecation warning), load `.env` before `config.py` reads environment variables, provider options for data retention (D-3), evaluation runs each question at least twice (§7.2).
+- Done: provider options for embeddings (D-3) work – the index was built with them on Fri 10-16. Spike gate passed on Mon 10-19 (see above). Still open: E-8 (tools + structured output in one call) → Mon 10-19 afternoon.

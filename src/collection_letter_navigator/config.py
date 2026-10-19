@@ -103,6 +103,10 @@ MAX_CHUNK_CHARACTERS: int = 2_000
 #: Number of chunks passed to the answer call (FR-07 AC2).
 RETRIEVAL_TOP_K: int = 6
 
+#: Hits fetched per query and retriever before fusion; more than k so that fusion
+#: has candidates to choose from (FR-07 AC1).
+RETRIEVAL_FETCH_K: int = 20
+
 #: Retrieval mode: ``vector``, ``bm25`` or ``hybrid`` (FR-07 AC4, FR-20 AC1).
 RETRIEVAL_MODE: str = os.getenv("RETRIEVAL_MODE", "hybrid")
 
