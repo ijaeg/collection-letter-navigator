@@ -4,7 +4,7 @@
 |---|---|
 | **Project** | Turing College – AI Engineering, Sprint 2 project ("Building Applications with AI") |
 | **Author** | Ingo Jäger |
-| **Status** | Draft v0.2 – 2026-10-19, after the spike (changes: see §13) |
+| **Status** | Draft v0.2.1 – 2026-10-20 (changes: see §13) |
 | **Audience** | Developer (implementation guide) and Turing College tutor (review guide) |
 | **Stack** | Python 3.13 (uv), Streamlit, LangChain against the OpenRouter API (OpenAI-compatible, chat and embeddings), Chroma, BM25 (`rank-bm25`), Pydantic |
 | **Time budget** | Estimated effort ≈ 50–60 hours plus learning time; available ≈ 100 hours from Fri 2026-10-16 to Wed 2026-10-28 (8–9 h on weekdays, max. 6 h on weekend days), including tests, evaluation, documentation and review preparation (see §11) |
@@ -152,7 +152,7 @@ Before retrieval, one LLM call turns the English question (plus triage context) 
 - AC3: The German queries are shown in the RAG panel (FR-18) and in debug output.
 - AC4: Whether query translation is kept as default is decided by the evaluation (§7.2). If it does not improve Hit-Rate@5, the README says so and the step remains switchable (`QUERY_TRANSLATION=on|off`).
 - AC5: Because the `law_filter` (FR-06) is produced by the same call, switching query translation off also switches the filter off: the English question is used directly and the search is unfiltered. This coupling is stated in the README (§7.2).
-- AC6: The prompt (`prompts/retrieval_plan.md`) contains the rules found in the spike (D-7): `rationale` in English; at most two laws in the filter, otherwise `null`; statutory terms only, no facts of the user's case (names, products, amounts, dates); explicit provision references are kept.
+- AC6: The prompt (`prompts/retrieval_plan.md`) contains the rules found in the spike (D-7): `rationale` in English; at most two laws in the filter, otherwise `null`; statutory terms only, no facts of the user's case (names, products, amounts, dates); explicit provision references are kept; a short list of lay words and the statutory terms to search for (e.g. instalments → *Teilleistung*, D-8).
 - AC7: Rules that can be expressed deterministically are applied in code, not left to the model: a court letter keeps ZPO in every filter; a filter naming all laws becomes `null`; duplicate queries are dropped; an output that fails validation is retried once, then the user gets a friendly error (NFR-02). Covered by unit tests with a scripted model.
 
 #### FR-06 Structured retrieval (Must)
@@ -164,7 +164,7 @@ Before retrieval, one LLM call turns the English question (plus triage context) 
 #### FR-07 Hybrid search (Must) – *optional task Hard 1*
 - AC1: Each German query is run against the vector store (Chroma) and a BM25 index over the same chunks (built directly with `rank-bm25`; `langchain-community` is being discontinued); each retriever returns up to 20 hits per query, and all lists are fused with reciprocal rank fusion (`1 / (60 + rank)`); duplicates across queries are merged. The BM25 tokenizer lower-cases, keeps section numbers as tokens and strips one common German ending.
 - AC2: The final context has at most *k* chunks (default 6, configurable).
-- AC3: A query naming a provision explicitly (e.g. "§ 199 BGB" or "BGB § 199") returns that section in the top 3 (unit test on the real index); the keyword search pins explicitly named provisions to the top of its list. Whether they should also be pinned after the fusion is open (D-8).
+- AC3: A query naming a provision explicitly (e.g. "§ 199 BGB" or "BGB § 199") returns that section in the top 3 (unit test on the real index); the keyword search pins explicitly named provisions to the top of its list, and up to two provisions named in the queries are also moved to the top of the fused list, inside the law filter (D-8; switch `PIN_EXPLICIT_REFERENCES`, default on).
 - AC4: Vector-only, BM25-only and hybrid are selectable in the developer settings (FR-20) and compared in §7.2.
 
 #### FR-08 Grounded answer (Must) – *optional task Easy 3*
@@ -210,12 +210,12 @@ Computes the last day to object to a court payment order or to file *Einspruch* 
 #### FR-12 `check_limitation` (Must)
 Estimates the end of the regular limitation period.
 
-- Input: `claim_date` (date the claim arose, e.g. invoice due date), `knowledge_date` (optional).
+- Input: `claim_date` (date the claim arose, e.g. invoice due date), `knowledge_date` (optional), `last_acknowledgment_date` (optional: last part payment, interest payment or other acknowledgment).
 - AC1: Regular period of 3 years starting at the end of the year in which the claim arose and the creditor knew of it (BGB §§ 195, 199 (1)); without `knowledge_date`, `claim_date` is assumed and listed in `assumptions`.
 - AC2: The result always states that limitation is a defence that must be raised, and lists suspension (§ 204), restart (§ 212) and titled claims (§ 197) as `missing_information` / not covered.
 - AC3: Returns `not_applicable_reason` for claims arising before 2002-01-01 (old law).
 - AC5: `missing_information` always asks whether anything was paid, a payment plan was agreed or the debt was acknowledged since the claim arose (each can restart the period, BGB § 212), and whether a court payment order was served (suspends the period, BGB § 204 (1) no. 3).
-- AC4: Unit tests with at least 6 cases, including 31 December and 1 January claim dates, and one case with a partial payment.
+- AC4: Unit tests with at least 6 cases, including 31 December and 1 January claim dates, and one case with a partial payment. An acknowledgment inside the period restarts it (three years from the acknowledgment, BGB § 212 (1) no. 1); a restart never shortens the period; an acknowledgment after the period has ended does not restart it.
 
 #### FR-13 `calculate_default_interest` (Must)
 Calculates the maximum statutory default interest for a consumer.
@@ -449,6 +449,8 @@ Created **before** prompts and retrieval settings are tuned:
 
 Provisional default: **R4** (tie on Hit-Rate@5, ahead on MRR@10). Findings: the embedding model alone is strong cross-lingually (R1); query translation adds half a question on 10 questions at ≈ 7 s per question; BM25 helps only with German queries (R3 < R1). Most misses are in the limitation block BGB §§ 194–218, where 25 similar chunks compete. Details in `spikes/NOTES.md`. These numbers are development results; the default is fixed by the test set.
 
+**Tuning D-8 (development questions, 2 runs, 2026-10-20):** a lay-term list in the retrieval prompt plus pinning of explicitly named provisions after the fusion raised R2 and R4 to **100 %** Hit-Rate@5 (MRR@10 0.80 / 0.81) without new misses; the lay-term list alone gave 90 %. Both changes are kept (§12 D-8).
+
 **Known limitation of the design:** R1 and R3 run without query translation and therefore **without metadata filter** (FR-05 AC5). The comparison R1 ↔ R2 measures query translation and filtering together; their individual effects are not separated. Filter accuracy is measured on the R2/R4 runs.
 
 ### 7.3 Tool-calling evaluation (Should)
@@ -604,8 +606,8 @@ The target "at least 2 medium and 1 hard" is met by **Must** requirements alone 
 | Fri 10-16 ✓ | Scaffolding, CI, spikes D-1, D-3, D-7; evening: statute XML, chunking concept, `kb_scope.yaml` | Done: scaffold merged with green CI; D-1, D-3, D-7 recorded in `spikes/NOTES.md` |
 | Fri 10-16 – Sun 10-18 ✓ | FR-04: parsing, chunking, embeddings, index and manifest for BGB, ZPO **and RDG** (84 chunks); 10 development questions; D-4 verified against the statute XML | Done: index committed; weekend plan finished on Friday evening |
 | Mon 10-19 ✓ | FR-05, FR-06, **FR-07** (moved forward from Tuesday) with tests; retrieval evaluation script (§7.2); spike gate on the development questions; spike E-8; spec v0.2; test set `eval/retrieval_questions.json` (written after the gate, not used for tuning) | Gate passed (85 %); E-8 decided; spec v0.2 and test set committed |
-| Tue 10-20 | Tool contract; FR-11, FR-12, FR-13 with reference tests and tool briefs (`docs/tools/`); `base_rates.csv` (D-5); D-8 tuning on the development questions (timebox 1 h) | All tool tests pass; D-8 decided |
-| Wed 10-21 | FR-08, FR-09, FR-10: answer call in one call with fallback (FR-10 AC8), `prompts/answer.md` with the E-8 findings, source and quote check, mocked pipeline tests | A question with tool use runs end to end in tests |
+| Tue 10-20 ✓ | Tool contract; FR-11, FR-12, FR-13 with reference tests and tool briefs (`docs/tools/`); `base_rates.csv` (D-5); D-8 tuning on the development questions; **FR-09** (moved forward from Wednesday) | Done: all tool tests pass; D-8 decided |
+| Wed 10-21 | FR-08, FR-10: answer call in one call with fallback (FR-10 AC8), `prompts/answer.md` with the E-8 findings, tool-calling loop using the checks of FR-09, mocked pipeline tests | A question with tool use runs end to end in tests |
 | Thu 10-22 | UI: FR-01, FR-02, FR-03, FR-17, FR-19; FR-21, FR-22, FR-23 | All *Must* FRs demonstrable in the browser |
 | Fri 10-23 | Retrieval evaluation on the test set (§7.2), winner as default; safety tests (FR-21 AC8) | `retrieval_results.csv` complete |
 | Sat 10-24 (6 h) | Letter Check (FR-16, Should); FR-18 RAG panel | Demo letter produces a checklist |
@@ -630,10 +632,10 @@ The schedule includes the agreed way of working for every new AI concept (concep
 | D-2 | Default chat model | **Decided:** `openai/gpt-5-mini`, reasoning effort `low`, temperature unset (the model rejects other values); structured output, tool calling and both combined work (D-7, E-8). |
 | D-3 | Data retention | **Decided (2026-10-16):** OpenRouter provider routing `{"data_collection": "deny", "zdr": true}` for all chat **and embedding** calls (set once in `config.py`); tested: eligible providers exist for both models (FR-23 AC4). |
 | D-4 | Legal rules | **Verified (2026-10-16)** against the statute XML: ZPO §§ 692 (1) no. 3, 694, 699, 700 (1), 339, 222 (2); BGB §§ 187 (1), 188 (2), 195, 197 (1) nos. 3–4, 199 (1), 204 (1) no. 3, 212 (1) no. 1, 247, 286, 288 (1), (2), (5). Open: one-page tool brief per tool in `docs/tools/` (Tue 10-20). BGB § 247 states only the initial rate, so current rates come from the Bundesbank table (D-5). |
-| D-5 | Base-rate data | Source, format and update date of the Bundesbank base-rate series; stored as CSV with source and retrieval date (Tue 10-20). |
+| D-5 | Base-rate data | **Done (2026-10-20):** `data/base_rates.csv` with all half-year rates from 2002-01-01 to 2026-07-01 (1.52 %), source Deutsche Bundesbank, retrieval date per row; the table covers dates up to 2026-12-31 and must be extended when the rate of 2027-01-01 is published. |
 | D-6 | Public holidays | Nationwide holidays by default; federal state as optional input (FR-11 AC2). Holidays at the court's location are what legally matters – stated in `assumptions`. |
 | D-7 | LangChain API | **Decided (2026-10-16/19):** structured output via `with_structured_output(..., method="json_schema")`; tool calling via `bind_tools` and a `ToolMessage` loop; both in **one** call via `bind_tools(..., response_format=..., strict=True)` (spike E-8, FR-10 AC8); BM25 directly with `rank-bm25` (FR-07 AC1). |
-| D-8 | Retrieval tuning (open) | Two ideas from the spike gate, tried on the development questions only (Tue 10-20, timebox 1 h): (1) pin provisions that a query names explicitly also **after** the fusion (at most two slots) – helps the limitation questions, but relies on the model knowing correct section numbers; (2) a short list of lay term → statutory term pairs in `prompts/retrieval_plan.md` (e.g. instalments → *Teilleistungen*). Kept only if Hit-Rate@5 or MRR@10 improve without new misses; the decision and its risk go into the README. |
+| D-8 | Retrieval tuning | **Decided (2026-10-20):** both ideas kept – (1) up to two provisions named explicitly in the queries are moved to the top of the fused list, inside the law filter (`PIN_EXPLICIT_REFERENCES`, default on); (2) a lay term → statutory term list in `prompts/retrieval_plan.md`. On the development questions R2/R4 rose from 85 % to 100 % Hit-Rate@5 without new misses (`eval/dev_results_d8_*.csv`, `spikes/NOTES.md`). Risk: pinning relies on the model naming correct section numbers; limited to two and to the filter; stated in the README. |
 | R-1 | Wrong legal statement with a source | Tool contract, quote check, "no result instead of a wrong result", ground-truth cross-check, safety tests |
 | R-2 | Line between information and advice (RDG) | No recommendations; tools give provisional, input-based checks with assumptions; referral to counselling services |
 | R-3 | Old claims under old law | Out of scope; tools refuse dates outside their supported period; interest uses historical base rates |
@@ -648,6 +650,13 @@ The schedule includes the agreed way of working for every new AI concept (concep
 ---
 
 ## 13. Change log
+
+**v0.2.1 (2026-10-20)** – results of Tuesday:
+
+- **D-8 decided, FR-05 AC6, FR-07 AC3, §7.2:** lay-term list in the retrieval prompt; explicitly named provisions pinned after the fusion (default on); development results 100 % Hit-Rate@5 for R2 and R4.
+- **D-5 done:** Bundesbank base rates 2002–2026 in `data/base_rates.csv`.
+- **FR-12 input and AC4:** optional `last_acknowledgment_date`; a part payment inside the period restarts it.
+- **§11:** FR-09 moved forward to Tuesday; Wednesday covers FR-08 and FR-10.
 
 **v0.2 (2026-10-19)** – results of the spike (D-1, D-3, D-4, D-7, E-8, spike gate; details in `spikes/NOTES.md`):
 

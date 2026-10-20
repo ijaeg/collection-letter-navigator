@@ -1,6 +1,6 @@
 # Spike notes
 
-Record of the spike results (Fri 2026-10-16 to Mon 2026-10-19). Feeds spec v0.2.
+Record of the spike results and the tuning experiments (Fri 2026-10-16 to Tue 2026-10-20). Feeds the spec (v0.2, v0.2.1).
 
 ## D-1 Embedding model (Fri 10-16)
 
@@ -134,9 +134,39 @@ Script: `spikes/tools_with_structured_output_check.py`, `openai/gpt-5-mini`, eff
 - **Silent assumption:** "the enforcement order came on …" was used as the date of service without saying so → the tool lists this in `assumptions` (FR-11 AC4), and the answer repeats it.
 - Terminology: the model calls an *Einspruch* an "objection" → the answer prompt keeps the German term next to the English one ("objection (Einspruch)").
 
+## D-8 Retrieval tuning on the development questions (Tue 10-20)
+
+Two changes from the spike gate, one per run, each run with 2 repetitions on the 10 development questions; baseline: `eval/dev_results.csv` (Mon 10-19).
+
+- **A – lay-term list:** one line in `prompts/retrieval_plan.md` with lay words and the statutory terms to search for (too old → Verjährung, instalments → Teilleistung, …). Output: `eval/dev_results_d8_prompt.csv`.
+- **B – A plus pinned references:** provisions a query names explicitly ("§ 199 BGB") are moved to the top of the fused list, at most two, inside the law filter (`PIN_EXPLICIT_REFERENCES=on`). Output: `eval/dev_results_d8_pin.csv`.
+
+| Run | R2 Hit-Rate@5 (run 1 / 2) | R2 MRR@10 | R4 Hit-Rate@5 (run 1 / 2) | R4 MRR@10 |
+|---|---|---|---|---|
+| Baseline | 85 % (80 / 90) | 0.62 | 85 % (80 / 90) | 0.63 |
+| A | 90 % (90 / 90) | 0.67 | 90 % (90 / 90) | 0.61 |
+| B | **100 % (100 / 100)** | **0.80** | **100 % (100 / 100)** | **0.81** |
+
+R1 and R3 (no query translation) are not affected by either change: R1 80 % in all three runs.
+
+### Observations
+
+- **Pinning fixes the limitation questions:** D05 and D06 rank first in both runs. The section numbers the model wrote were correct in these runs (§§ 195, 199, 188, 222); once it named a non-existent "§ 212a", which had no effect because no chunk matches it. The limit of two provisions kept the extra numbers (§§ 212, 212a) out.
+- **The lay-term list fixes D10:** the queries now contain "Teilleistung", and BGB § 266 is found in every run.
+- **A alone is mixed:** Hit-Rate@5 rises, but R4 MRR drops slightly and D06 is missed once in R4 – within the run-to-run variation of the retrieval plan.
+- D04: in one run of B the filter was ZPO only although BGB § 193 is also expected (filter accuracy 95 %); a variation of the plan, not caused by pinning; the question was still hit via ZPO § 222.
+- Latency was higher today in all configurations, also in R1 without any LLM call (2–3 s instead of 0.5 s) – provider or network, not the changes.
+
+### Decision
+
+- Rule from spec D-8: keep a change only if Hit-Rate@5 or MRR@10 improves without new misses. **B meets it clearly** (no new miss, +15 points Hit-Rate@5, +0.18 MRR@10); B contains A, so **both changes stay**.
+- **`PIN_EXPLICIT_REFERENCES` is on by default** (switch off with `PIN_EXPLICIT_REFERENCES=off`).
+- Limits for the README: 10 questions, 2 runs – "100 %" means none of the 10 was missed, not a general result; pinning relies on the model naming correct section numbers (limited to two, inside the filter). The test set decides on Fri 10-23.
+
 ## Open points for the next days
 
 - Sat 10-17: build the index for the BGB and ZPO scope (FR-04) with `qwen/qwen3-embedding-8b`; write the 10 development questions (`eval/dev_questions.json`).
 - Sun 10-18: end-to-end spike – confirm D-1 on real chunks (optionally against `openai/text-embedding-3-small`), test E-8 (tools + structured output in one call), test the provider options for embeddings (D-3), measure latency and cost per question.
 - Spec v0.2 (Mon 10-19): D-1 decision, NFR-01 guardrail note, `.env.example`/`config.py` (model, empty prefixes), rules for `prompts/retrieval_plan.md`, today's date in the system prompt (FR-10), BM25 directly with `rank-bm25` instead of `langchain-community` (deprecation warning), load `.env` before `config.py` reads environment variables, provider options for data retention (D-3), evaluation runs each question at least twice (§7.2).
 - Done: provider options for embeddings (D-3) work – the index was built with them on Fri 10-16. Spike gate passed on Mon 10-19 (see above). E-8 decided on Mon 10-19 (variant A, see above). All spike items are closed; next: spec v0.2.
+- D-8 decided on Tue 10-20 (both changes kept, pinning on by default, see above).
