@@ -67,3 +67,15 @@ def test_fr05_ac4_query_translation_switch_read_from_environment(
 @pytest.mark.skip(reason="not implemented: FR-23 AC3")
 def test_fr23_ac3_api_key_is_not_a_configuration_value() -> None:
     """Only the name of the key variable is a constant, never the key itself."""
+
+
+def test_d8_pinning_is_on_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pinning explicit references is the default since D-8 and can be switched off."""
+    monkeypatch.delenv("PIN_EXPLICIT_REFERENCES", raising=False)
+    try:
+        assert importlib.reload(config).PIN_EXPLICIT_REFERENCES is True
+        monkeypatch.setenv("PIN_EXPLICIT_REFERENCES", "off")
+        assert importlib.reload(config).PIN_EXPLICIT_REFERENCES is False
+    finally:
+        monkeypatch.undo()
+        importlib.reload(config)

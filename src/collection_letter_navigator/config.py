@@ -125,9 +125,9 @@ RRF_K: int = 60
 #: Below this many filtered hits the search is retried unfiltered (FR-06 AC3).
 MIN_FILTERED_RESULTS: int = 2
 
-#: Experiment D-8: provisions a query names explicitly ("§ 199 BGB") are moved to the
-#: top of the fused list; off by default until the development questions decide (FR-07 AC3).
-PIN_EXPLICIT_REFERENCES: bool = os.getenv("PIN_EXPLICIT_REFERENCES", "off").lower() == "on"
+#: Provisions a query names explicitly ("§ 199 BGB") are moved to the top of the fused
+#: list; on by default since D-8 (development questions, 2026-10-20) (FR-07 AC3).
+PIN_EXPLICIT_REFERENCES: bool = os.getenv("PIN_EXPLICIT_REFERENCES", "on").lower() == "on"
 
 #: At most this many explicitly named provisions are pinned (D-8).
 MAX_PINNED_REFERENCES: int = 2
