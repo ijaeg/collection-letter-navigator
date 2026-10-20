@@ -127,13 +127,27 @@ def test_fr04_ac4_index_and_manifest_round_trip(tmp_path: Path) -> None:
     chunks = [c for s in _sections(["688-704"]) for c in ingest.chunk_section(s)]
     index_dir = tmp_path / "index"
     ingest.write_index(chunks, index_dir, embeddings=DeterministicFakeEmbedding(size=8))
-    ingest.write_manifest(chunks, SNAPSHOT, index_dir, embedding_model="fake-model")
+    ingest.write_manifest(chunks, index_dir, embedding_model="fake-model")
 
     manifest = ingest.read_manifest(index_dir)
     assert manifest["snapshot_date"] == "2026-10-16"
     assert manifest["embedding_model"] == "fake-model"
     assert manifest["chunk_count"] == 4
     assert manifest["chunks_per_law"] == {"ZPO": 4}
+
+
+def test_fr04_ac4_manifest_records_the_version_date_per_law(tmp_path: Path) -> None:
+    """Each law keeps its own snapshot date; the overall date is the most recent one."""
+    zpo = [c for s in _sections(["688"]) for c in ingest.chunk_section(s)]
+    bgb = [c.model_copy(deep=True) for c in zpo]
+    for chunk in bgb:
+        chunk.metadata.update(law="BGB", retrieved_at="2026-09-26")
+    ingest.write_manifest(zpo + bgb, tmp_path, embedding_model="m", built_at="2026-10-16T16:40:11")
+
+    manifest = ingest.read_manifest(tmp_path)
+    assert manifest["snapshot_dates"] == {"ZPO": "2026-10-16", "BGB": "2026-09-26"}
+    assert manifest["snapshot_date"] == "2026-10-16"
+    assert manifest["built_at"] == "2026-10-16T16:40:11"
 
 
 def test_fr04_ac4_write_index_leaves_no_partial_index(tmp_path: Path) -> None:

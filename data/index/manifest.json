@@ -1,5 +1,10 @@
 {
-  "snapshot_date": "2026-09-26",
+  "snapshot_date": "2026-09-30",
+  "snapshot_dates": {
+    "BGB": "2026-09-26",
+    "ZPO": "2026-09-30",
+    "RDG": "2024-12-31"
+  },
   "embedding_model": "qwen/qwen3-embedding-8b",
   "built_at": "2026-10-16T16:40:11",
   "chunk_count": 84,

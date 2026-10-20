@@ -404,33 +404,40 @@ def write_index(
 
 def write_manifest(
     chunks: list[Document],
-    snapshot_date: date,
     index_dir: Path | None = None,
     embedding_model: str | None = None,
+    built_at: str | None = None,
 ) -> None:
     """Write the index manifest shown in the UI.
 
     Args:
-        chunks: The indexed chunks, used for counts per law.
-        snapshot_date: Date the statute XML was retrieved.
+        chunks: The indexed chunks, used for counts and dates per law.
         index_dir: Target directory; defaults to :data:`config.INDEX_DIR`.
         embedding_model: Model used for the index; defaults to
             :data:`config.EMBEDDING_MODEL`.
+        built_at: Build time to record; defaults to now. Passed when only the
+            manifest is rewritten for an unchanged index.
 
     Returns:
-        None.
+        None. The manifest holds ``snapshot_dates`` (version date per law, from
+        the chunks' ``retrieved_at``) and ``snapshot_date`` (the most recent of
+        them).
 
     Related: FR-04 AC4, FR-21 AC6, NFR-10
     """
     target = index_dir or config.INDEX_DIR
     target.mkdir(parents=True, exist_ok=True)
     per_law: dict[str, int] = {}
+    dates: dict[str, str] = {}
     for chunk in chunks:
-        per_law[chunk.metadata["law"]] = per_law.get(chunk.metadata["law"], 0) + 1
+        law = str(chunk.metadata["law"])
+        per_law[law] = per_law.get(law, 0) + 1
+        dates[law] = max(dates.get(law, ""), str(chunk.metadata["retrieved_at"]))
     manifest = {
-        "snapshot_date": snapshot_date.isoformat(),
+        "snapshot_date": max(dates.values(), default=""),
+        "snapshot_dates": dates,
         "embedding_model": embedding_model or config.EMBEDDING_MODEL,
-        "built_at": datetime.now().isoformat(timespec="seconds"),
+        "built_at": built_at or datetime.now().astimezone().isoformat(timespec="seconds"),
         "chunk_count": len(chunks),
         "chunks_per_law": per_law,
         "chunk_ids": [str(chunk.id) for chunk in chunks],
