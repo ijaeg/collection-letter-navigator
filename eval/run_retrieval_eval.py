@@ -56,6 +56,7 @@ FIELDS = (
     "snapshot_date",
     "embedding_model",
     "chat_model",
+    "pin_references",
 )
 
 
@@ -183,10 +184,17 @@ def evaluate(
     Related: §7.2
     """
     manifest = read_manifest()
+    dates = manifest.get("snapshot_dates")
+    snapshot = (
+        "; ".join(f"{law} {day}" for law, day in dates.items())
+        if isinstance(dates, dict)
+        else str(manifest.get("snapshot_date", ""))
+    )
     common = {
-        "snapshot_date": manifest.get("snapshot_date", ""),
+        "snapshot_date": snapshot,
         "embedding_model": manifest.get("embedding_model", ""),
         "chat_model": config.CHAT_MODEL,
+        "pin_references": "on" if config.PIN_EXPLICIT_REFERENCES else "off",
     }
     depth = max(config.HIT_RATE_AT_K, config.MRR_AT_K)
     needs_plan = any(translate for _, translate, _ in configurations)
@@ -218,20 +226,28 @@ def evaluate(
                 }
                 used = plan if translate else retrieval.passthrough_plan(question["question_en"])
                 if used is None:
-                    rows.append({**row, "error": plan_error, "hit_at_5": 0.0, "rr_at_10": 0.0})
+                    missed: Any = 0.0 if question["expected"] else ""
+                    rows.append(
+                        {**row, "error": plan_error, "hit_at_5": missed, "rr_at_10": missed}
+                    )
                     continue
                 started = time.perf_counter()
                 outcome = retrieval.retrieve(used, mode=mode, k=depth)  # type: ignore[arg-type]
                 ranked = ranked_provisions(outcome.chunks)
                 expected = question["expected"]
+                scored = bool(expected)  # no expected provision (out of scope): not scored
                 row.update(
                     queries_de=" | ".join(used.queries_de),
                     law_filter=",".join(outcome.applied_filter or []),
                     filter_fallback=outcome.filter_fallback,
                     top_provisions=" | ".join(ranked[: config.MRR_AT_K]),
-                    hit_at_5=hit_rate_at_k(ranked, expected, config.HIT_RATE_AT_K),
-                    rr_at_10=reciprocal_rank(ranked, expected, config.MRR_AT_K),
-                    filter_ok=filter_accuracy(used.law_filter, expected) if translate else "",
+                    hit_at_5=hit_rate_at_k(ranked, expected, config.HIT_RATE_AT_K)
+                    if scored
+                    else "",
+                    rr_at_10=reciprocal_rank(ranked, expected, config.MRR_AT_K) if scored else "",
+                    filter_ok=(
+                        filter_accuracy(used.law_filter, expected) if translate and scored else ""
+                    ),
                     plan_seconds=round(plan_seconds, 2) if translate else 0.0,
                     retrieval_seconds=round(time.perf_counter() - started, 2),
                     error="",
@@ -244,25 +260,30 @@ def evaluate(
 def summarise(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Aggregate the rows per configuration, with the spread between runs.
 
+    Questions without expected provisions (out of scope) count for latency
+    only; they are excluded from Hit-Rate, MRR and filter accuracy.
+
     Returns:
         One summary per configuration: Hit-Rate@5, MRR@10, filter accuracy,
-        mean latency, and the lowest and highest Hit-Rate@5 of a single run.
+        mean latency, the lowest and highest Hit-Rate@5 of a single run, and
+        the number of unscored rows.
 
     Related: §7.2
     """
     summary = []
     for name in dict.fromkeys(row["config"] for row in rows):
         mine = [row for row in rows if row["config"] == name]
+        scored = [row for row in mine if row["hit_at_5"] != ""]
         per_run = [
-            statistics.mean(r["hit_at_5"] for r in mine if r["run"] == run)
-            for run in sorted({r["run"] for r in mine})
+            statistics.mean(r["hit_at_5"] for r in scored if r["run"] == run)
+            for run in sorted({r["run"] for r in scored})
         ]
         filters = [r["filter_ok"] for r in mine if r.get("filter_ok") != ""]
         summary.append(
             {
                 "config": name,
-                "hit_rate_at_5": statistics.mean(r["hit_at_5"] for r in mine),
-                "mrr_at_10": statistics.mean(r["rr_at_10"] for r in mine),
+                "hit_rate_at_5": statistics.mean(r["hit_at_5"] for r in scored),
+                "mrr_at_10": statistics.mean(r["rr_at_10"] for r in scored),
                 "filter_accuracy": statistics.mean(filters) if filters else None,
                 "seconds": statistics.mean(
                     float(r.get("plan_seconds") or 0) + float(r.get("retrieval_seconds") or 0)
@@ -271,6 +292,7 @@ def summarise(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "hit_rate_min": min(per_run),
                 "hit_rate_max": max(per_run),
                 "errors": sum(1 for r in mine if r.get("error")),
+                "unscored": len(mine) - len(scored),
             }
         )
     return summary
@@ -288,6 +310,9 @@ def print_summary(summary: list[dict[str, Any]]) -> None:
             f"{s['config']:<7}{s['hit_rate_at_5']:>7.0%}{spread:>12}{s['mrr_at_10']:>8.2f}"
             f"{filt:>8}{s['seconds']:>6.1f}{s['errors']:>5}"
         )
+    unscored = summary[0]["unscored"] if summary else 0
+    if unscored:
+        print(f"({unscored} rows per configuration without expected provisions, not scored)")
 
 
 def main(argv: list[str] | None = None) -> int:
