@@ -15,12 +15,18 @@ import os
 from datetime import date
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 # ---------------------------------------------------------------------------
 # Paths (§9)
 # ---------------------------------------------------------------------------
 
 #: Repository root; all other paths are derived from it.
 PROJECT_ROOT: Path = Path(__file__).resolve().parents[2]
+
+# The gitignored .env is loaded before any setting below is read, so that values
+# in .env (e.g. CHAT_MODEL) take effect; an exported variable always wins (NFR-01).
+load_dotenv(PROJECT_ROOT / ".env", override=False)
 
 #: Directory holding the knowledge-base scope, the index and the demo letters.
 DATA_DIR: Path = PROJECT_ROOT / "data"
@@ -118,6 +124,13 @@ RRF_K: int = 60
 
 #: Below this many filtered hits the search is retried unfiltered (FR-06 AC3).
 MIN_FILTERED_RESULTS: int = 2
+
+#: Experiment D-8: provisions a query names explicitly ("§ 199 BGB") are moved to the
+#: top of the fused list; off by default until the development questions decide (FR-07 AC3).
+PIN_EXPLICIT_REFERENCES: bool = os.getenv("PIN_EXPLICIT_REFERENCES", "off").lower() == "on"
+
+#: At most this many explicitly named provisions are pinned (D-8).
+MAX_PINNED_REFERENCES: int = 2
 
 #: Official XML source of the statute texts (FR-04 AC1).
 GESETZE_IM_INTERNET_BASE_URL: str = "https://www.gesetze-im-internet.de"

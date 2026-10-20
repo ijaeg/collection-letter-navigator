@@ -4,14 +4,14 @@ One page per deterministic tool, written **before** the tool is implemented
 (D-4). A brief records the inputs, the rule with its provisions, the
 assumptions the tool states, and the cases in which it returns no result.
 
-TODO (D-4): write one brief per tool, verified against the statute text and
-public consumer guides.
+The briefs for the three Must tools were written together with the tools on
+2026-10-20; the rules are checked against the statute XML of the index (D-4).
 
 | Tool | Requirement | Brief |
 |---|---|---|
-| `calculate_objection_deadline` | FR-11 | TODO `calculate_objection_deadline.md` |
-| `check_limitation` | FR-12 | TODO `check_limitation.md` |
-| `calculate_default_interest` | FR-13 | TODO `calculate_default_interest.md` |
+| `calculate_objection_deadline` | FR-11 | [`calculate_objection_deadline.md`](calculate_objection_deadline.md) |
+| `check_limitation` | FR-12 | [`check_limitation.md`](check_limitation.md) |
+| `calculate_default_interest` | FR-13 | [`calculate_default_interest.md`](calculate_default_interest.md) |
 | `fetch_paragraph` | FR-14 | TODO `fetch_paragraph.md` |
 | `check_collection_fees` | FR-15 | TODO `check_collection_fees.md` — the brief is the **precondition** for implementing the tool at all; without it, fee questions are answered from the knowledge base without a calculation. |
 

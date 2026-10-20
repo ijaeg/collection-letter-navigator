@@ -102,3 +102,43 @@ def test_offline_run_writes_one_row_per_config_and_question(
     summary = {s["config"]: s for s in ev.summarise(rows)}
     assert summary["B2"]["filter_accuracy"] == 1.0
     assert summary["B1"]["filter_accuracy"] is None
+
+
+def test_questions_without_expected_provisions_are_not_scored(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An out-of-scope question counts for latency only, not for Hit-Rate (§7.2)."""
+
+    def fake_plan(question_en: str, triage: Any = None, **_: Any) -> RetrievalPlan:
+        return RetrievalPlan(queries_de=["Widerspruch Mahnbescheid Frist"], rationale="x")
+
+    monkeypatch.setattr(retrieval, "create_retrieval_plan", fake_plan)
+    questions = [
+        {
+            "id": "A",
+            "question_en": "Deadline?",
+            "sender": "court",
+            "expected": ["ZPO § 692"],
+            "category": "deadline",
+        },
+        {
+            "id": "B",
+            "question_en": "Garnishment?",
+            "sender": "not_sure",
+            "expected": [],
+            "category": "out_of_scope",
+        },
+    ]
+    rows = ev.evaluate(questions, runs=1, configurations=(("B2", True, "bm25"),))
+    out_of_scope = next(r for r in rows if r["question_id"] == "B")
+    assert out_of_scope["hit_at_5"] == "" and out_of_scope["filter_ok"] == ""
+    summary = ev.summarise(rows)[0]
+    assert summary["hit_rate_at_5"] == 1.0
+    assert summary["unscored"] == 1
+
+
+def test_test_set_matches_the_dataset_schema() -> None:
+    """The committed test set passes the schema check and covers every category (§7.1)."""
+    questions = ev.load_questions(config.EVAL_DIR / "retrieval_questions.json")
+    assert 20 <= len(questions) <= 25
+    assert {q["category"] for q in questions} == set(config.EVAL_CATEGORIES)

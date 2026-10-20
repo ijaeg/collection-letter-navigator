@@ -14,8 +14,9 @@ import argparse
 import sys
 import time
 from collections import Counter
-from datetime import date
 from pathlib import Path
+
+from langchain_core.documents import Document
 
 from collection_letter_navigator import config, ingest, llm
 
@@ -34,6 +35,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--index-dir", type=Path, default=config.INDEX_DIR)
     parser.add_argument("--refresh", action="store_true", help="download the XML again")
     parser.add_argument("--dry-run", action="store_true", help="chunk only, do not embed")
+    parser.add_argument(
+        "--manifest-only",
+        action="store_true",
+        help="rewrite manifest.json for the unchanged index, without embedding",
+    )
     return parser.parse_args()
 
 
@@ -63,6 +69,8 @@ def main() -> int:
     print(f"Longest chunk: {longest.id} ({len(longest.page_content)} characters)")
     if args.dry_run:
         return 0
+    if args.manifest_only:
+        return rewrite_manifest(chunks, args.index_dir)
 
     started = time.perf_counter()
     try:
@@ -70,9 +78,37 @@ def main() -> int:
     except (RuntimeError, llm.LlmCallError) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1
-    snapshot = date.fromisoformat(str(chunks[0].metadata["retrieved_at"]))
-    ingest.write_manifest(chunks, snapshot, args.index_dir)
+    ingest.write_manifest(chunks, args.index_dir)
     print(f"Index written to {args.index_dir} in {time.perf_counter() - started:.1f} s")
+    return 0
+
+
+def rewrite_manifest(chunks: list[Document], index_dir: Path) -> int:
+    """Rewrite the manifest of an unchanged index, keeping model and build time.
+
+    Refuses if the chunks differ from the indexed ones, because then the index
+    itself must be rebuilt.
+
+    Returns:
+        Process exit code: 0 on success, 1 if the index would have to be rebuilt.
+
+    Related: FR-04 AC4, NFR-10
+    """
+    try:
+        old = ingest.read_manifest(index_dir)
+    except FileNotFoundError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
+    if old.get("chunk_ids") != [str(chunk.id) for chunk in chunks]:
+        print("Error: the chunks differ from the indexed ones; rebuild the index.", file=sys.stderr)
+        return 1
+    ingest.write_manifest(
+        chunks,
+        index_dir,
+        embedding_model=str(old["embedding_model"]),
+        built_at=str(old["built_at"]),
+    )
+    print(f"Manifest rewritten in {index_dir} (index unchanged)")
     return 0
 
 

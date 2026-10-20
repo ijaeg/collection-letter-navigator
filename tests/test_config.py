@@ -5,6 +5,12 @@ Related: FR-04 AC2, FR-07 AC2, FR-20 AC2, §9
 
 from __future__ import annotations
 
+import importlib
+import os
+from pathlib import Path
+from typing import Any
+
+import dotenv
 import pytest
 
 from collection_letter_navigator import config
@@ -16,14 +22,46 @@ def test_module_imports() -> None:
     assert config.MAX_CHUNK_CHARACTERS == 2_000
 
 
-@pytest.mark.skip(reason="not implemented: FR-20 AC2")
-def test_fr20_ac2_chat_model_overridable_by_environment() -> None:
+def test_fr20_ac2_chat_model_overridable_by_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     """CHAT_MODEL in the environment replaces the default model."""
+    monkeypatch.setenv("CHAT_MODEL", "test/model")
+    try:
+        assert importlib.reload(config).CHAT_MODEL == "test/model"
+    finally:
+        monkeypatch.undo()
+        importlib.reload(config)
 
 
-@pytest.mark.skip(reason="not implemented: FR-05 AC4")
-def test_fr05_ac4_query_translation_switch_read_from_environment() -> None:
+def test_nfr01_dotenv_is_loaded_before_settings_are_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A value from the project's .env file reaches config (NFR-01)."""
+    seen: dict[str, Any] = {}
+
+    def fake_load_dotenv(path: Path, override: bool = False) -> bool:
+        seen["path"], seen["override"] = path, override
+        os.environ["CHAT_MODEL"] = "from/dotenv"  # what the real .env would do
+        return True
+
+    monkeypatch.delenv("CHAT_MODEL", raising=False)
+    monkeypatch.setattr(dotenv, "load_dotenv", fake_load_dotenv)
+    try:
+        reloaded = importlib.reload(config)
+        assert reloaded.CHAT_MODEL == "from/dotenv"
+        assert seen == {"path": reloaded.PROJECT_ROOT / ".env", "override": False}
+    finally:
+        monkeypatch.undo()
+        importlib.reload(config)
+
+
+def test_fr05_ac4_query_translation_switch_read_from_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """QUERY_TRANSLATION=off disables the query-translation step."""
+    monkeypatch.setenv("QUERY_TRANSLATION", "off")
+    try:
+        assert importlib.reload(config).QUERY_TRANSLATION_ENABLED is False
+    finally:
+        monkeypatch.undo()
+        importlib.reload(config)
 
 
 @pytest.mark.skip(reason="not implemented: FR-23 AC3")
