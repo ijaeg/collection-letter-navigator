@@ -502,10 +502,59 @@ def retrieve(
     size = k or config.RETRIEVAL_TOP_K
     law_filter = list(plan.law_filter) if plan.law_filter else None
     chunks = _run_queries(plan.queries_de, selected, law_filter, size)
+    fallback = False
     if law_filter and len(chunks) < config.MIN_FILTERED_RESULTS:
         chunks = _run_queries(plan.queries_de, selected, None, size)  # FR-06 AC3
-        return RetrievalOutcome(plan, chunks, selected, None, filter_fallback=True)
-    return RetrievalOutcome(plan, chunks, selected, law_filter, filter_fallback=False)
+        law_filter, fallback = None, True
+    if config.PIN_EXPLICIT_REFERENCES:
+        chunks = pin_explicit_references(chunks, plan.queries_de, law_filter, size)
+    return RetrievalOutcome(plan, chunks, selected, law_filter, filter_fallback=fallback)
+
+
+def pin_explicit_references(
+    chunks: Sequence[ScoredChunk],
+    queries: Sequence[str],
+    law_filter: Sequence[LawCode] | None,
+    k: int,
+) -> list[ScoredChunk]:
+    """Move provisions the queries name explicitly to the top of the fused list.
+
+    Experiment D-8: in the spike gate, BGB §§ 195/199 were named in the queries
+    but lost in the fusion against similar limitation chunks. At most
+    :data:`config.MAX_PINNED_REFERENCES` provisions are pinned (first named
+    first); all their chunks move up, even if fusion had not found them. The law
+    filter still applies.
+
+    Args:
+        chunks: The fused list.
+        queries: The German queries of the plan.
+        law_filter: The applied filter, or None.
+        k: Size of the final list.
+
+    Returns:
+        At most *k* chunks: pinned provisions first, then the rest in fused order.
+
+    Related: FR-07 AC3, §12 D-8
+    """
+    named: list[tuple[str, str]] = []
+    for query in queries:
+        for match in _REFERENCE.finditer(query):  # in the order the queries name them
+            law = (match.group("l1") or match.group("l2")).upper()
+            section = (match.group("s1") or match.group("s2")).lower()
+            if (law, section) not in named and (not law_filter or law in law_filter):
+                named.append((law, section))
+    named = named[: config.MAX_PINNED_REFERENCES]
+    if not named:
+        return list(chunks)[:k]
+    pinned = [
+        ScoredChunk(_chunk_id(doc), doc, 0.0)
+        for ref in named
+        for doc in load_corpus()
+        if (doc.metadata.get("law"), doc.metadata.get("section")) == ref
+    ]
+    pinned_ids = {chunk.chunk_id for chunk in pinned}
+    rest = [chunk for chunk in chunks if chunk.chunk_id not in pinned_ids]
+    return (pinned + rest)[:k]
 
 
 # ---------------------------------------------------------------------------

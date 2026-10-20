@@ -4,6 +4,7 @@ The user is a lay person in Germany who received a letter about a debt (from the
 
 - `queries_de`: 2 or 3 short German search queries (never more than 4).
   - Use the vocabulary of the statutes, not a literal translation: "court letter, how long to object" → "Widerspruch gegen den Mahnbescheid Frist"; "is the debt too old" → "regelmäßige Verjährungsfrist Beginn".
+  - Typical lay words and the statutory terms to search for: too old / expired → Verjährung, Verjährungsfrist; pay in parts / instalments → Teilleistung, Ratenzahlung; late / overdue → Verzug, Mahnung; already paid → Erfüllung; receipt / proof of payment → Quittung; court payment order → Mahnbescheid; objection → Widerspruch; enforcement order → Vollstreckungsbescheid; challenge an enforcement order → Einspruch; deadline → Frist, Fristbeginn, Fristende; collection fees → Inkassokosten.
   - Use statutory terms only. Never put facts of the user's case into a query (no company names, products, amounts or dates such as "Handyrechnung" or "2021").
   - If the question names a provision ("§ 199 BGB"), keep the reference in one query.
 - `law_filter`: the laws the answer must come from, or null.

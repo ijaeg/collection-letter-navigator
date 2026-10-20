@@ -264,3 +264,41 @@ def test_fr04_ac4_reading_the_index_leaves_the_committed_files_unchanged() -> No
     retrieval.load_corpus()
     retrieval.keyword_search("Verjährung")
     assert digest() == before
+
+
+# --- D-8 experiment: pin explicit references after fusion ---------------------
+
+
+def test_d8_pinning_moves_named_provisions_to_the_top(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Named provisions come first, in the order named; the rest keeps the fused order."""
+    monkeypatch.setattr(config, "PIN_EXPLICIT_REFERENCES", True)
+    fused = [chunk("BGB-200"), chunk("BGB-201"), chunk("BGB-195")]
+    monkeypatch.setattr(retrieval, "_run_queries", lambda *a, **kw: fused)
+    plan = RetrievalPlan(
+        queries_de=["Verjährungsfrist § 199 BGB", "regelmäßige Frist § 195 BGB"], rationale="x"
+    )
+    ids = [c.chunk_id for c in retrieval.retrieve(plan, mode="bm25", k=4).chunks]
+    assert ids == ["BGB-199", "BGB-195", "BGB-200", "BGB-201"]
+
+
+def test_d8_pinning_is_limited_and_respects_the_filter(monkeypatch: pytest.MonkeyPatch) -> None:
+    """At most two provisions are pinned, and none outside the law filter."""
+    monkeypatch.setattr(config, "PIN_EXPLICIT_REFERENCES", True)
+    fused = [chunk("ZPO-700", "ZPO"), chunk("ZPO-339", "ZPO")]
+    monkeypatch.setattr(retrieval, "_run_queries", lambda *a, **kw: fused)
+    plan = RetrievalPlan(
+        queries_de=["§ 199 BGB § 692 ZPO § 694 ZPO § 699 ZPO"], law_filter=["ZPO"], rationale="x"
+    )
+    ids = [c.chunk_id for c in retrieval.retrieve(plan, mode="bm25", k=6).chunks]
+    assert ids[:2] == ["ZPO-692", "ZPO-694"]
+    assert "BGB-199" not in ids and "ZPO-699" not in ids
+
+
+def test_d8_pinning_is_off_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without the switch, the fused order stays as it is."""
+    monkeypatch.setattr(config, "PIN_EXPLICIT_REFERENCES", False)
+    fused = [chunk("BGB-200"), chunk("BGB-201")]
+    monkeypatch.setattr(retrieval, "_run_queries", lambda *a, **kw: fused)
+    plan = RetrievalPlan(queries_de=["§ 199 BGB"], rationale="x")
+    ids = [c.chunk_id for c in retrieval.retrieve(plan, mode="bm25").chunks]
+    assert ids == ["BGB-200", "BGB-201"]
