@@ -11,14 +11,59 @@ Related: FR-08, FR-09, FR-10, FR-17 AC1, FR-21 AC2, §5.1, §5.2, §7.4
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 
+from collection_letter_navigator import retrieval as retrieval_module
 from collection_letter_navigator.retrieval import RetrievalOutcome
 from collection_letter_navigator.schemas import AnswerWithSources, ToolResult, TriageResult
+
+#: Quoted passages: German „…“, English “…” and straight "…" quotation marks (FR-09 AC2).
+_QUOTE = re.compile(r"„([^“”\"]+)[“”\"]|“([^”]+)”|\"([^\"]+)\"")
+
+#: Words that mark a passage as German; together with umlauts and ß (FR-09 AC2).
+_GERMAN_WORDS = frozenset(
+    [
+        "der",
+        "die",
+        "das",
+        "den",
+        "dem",
+        "des",
+        "und",
+        "oder",
+        "ist",
+        "sind",
+        "wird",
+        "werden",
+        "kann",
+        "nicht",
+        "ein",
+        "eine",
+        "einer",
+        "eines",
+        "zu",
+        "von",
+        "mit",
+        "auf",
+        "für",
+        "bei",
+        "nach",
+        "vor",
+        "seit",
+        "soweit",
+        "wenn",
+        "so",
+        "dass",
+    ]
+)
+
+#: Ellipsis marks a model may use inside or around a quote.
+_ELLIPSIS = re.compile(r"\s*(?:…|\.\.\.|\[…\]|\(…\))\s*")
 
 
 @dataclass(slots=True)
@@ -120,7 +165,12 @@ def validate_source_ids(
 
     Related: FR-09 AC1, §7.4
     """
-    raise NotImplementedError("FR-09 AC1: drop chunk IDs outside this question's retrieval")
+    retrieved = {chunk.chunk_id for chunk in retrieval.chunks}
+    kept: list[str] = []
+    dropped: list[str] = []
+    for chunk_id in dict.fromkeys(answer.source_chunk_ids):  # duplicates count once
+        (kept if chunk_id in retrieved else dropped).append(chunk_id)
+    return kept, dropped
 
 
 def normalise_whitespace(text: str) -> str:
@@ -135,7 +185,7 @@ def normalise_whitespace(text: str) -> str:
 
     Related: FR-09 AC2
     """
-    raise NotImplementedError("FR-09 AC2: normalise whitespace before comparing quotes")
+    return " ".join(text.split())
 
 
 def extract_german_quotes(answer_text: str) -> list[str]:
@@ -149,7 +199,14 @@ def extract_german_quotes(answer_text: str) -> list[str]:
 
     Related: FR-09 AC2
     """
-    raise NotImplementedError("FR-09 AC2: find quoted German passages in the answer")
+    quotes = []
+    for match in _QUOTE.finditer(answer_text):
+        quote = next(group for group in match.groups() if group is not None)
+        words = re.findall(r"[a-zäöüß]+", quote.lower())
+        # A single quoted term ("Widerspruch") is a name, not a quote of the statute.
+        if len(words) >= 3 and (re.search(r"[äöüß]", quote.lower()) or _GERMAN_WORDS & set(words)):
+            quotes.append(quote)
+    return quotes
 
 
 def quote_is_grounded(quote: str, chunk_ids: Sequence[str]) -> bool:
@@ -164,7 +221,18 @@ def quote_is_grounded(quote: str, chunk_ids: Sequence[str]) -> bool:
 
     Related: FR-09 AC2
     """
-    raise NotImplementedError("FR-09 AC2: verify the quote against the cited chunk text")
+    sources = [
+        normalise_whitespace(doc.page_content)
+        for doc in (retrieval_module.get_chunk_by_id(chunk_id) for chunk_id in chunk_ids)
+        if doc is not None
+    ]
+    # Every part between ellipses must appear verbatim in one cited chunk.
+    parts = [
+        normalise_whitespace(part).strip(" .,;:")
+        for part in _ELLIPSIS.split(quote)
+        if part.strip(" .,;:")
+    ]
+    return bool(parts) and any(all(part in source for part in parts) for source in sources)
 
 
 def enforce_quote_fidelity(
@@ -184,7 +252,20 @@ def enforce_quote_fidelity(
 
     Related: FR-09 AC3, §7.4
     """
-    raise NotImplementedError("FR-09 AC3: replace unverified quotes with a reference")
+    text = answer.answer_en
+    replaced = 0
+    reference = "(see the legal basis below)"
+    if chunk_ids:
+        first = retrieval_module.get_chunk_by_id(chunk_ids[0])
+        if first is not None:
+            reference = f"(see § {first.metadata['section']} {first.metadata['law']} below)"
+    for quote in extract_german_quotes(text):
+        if quote_is_grounded(quote, chunk_ids):
+            continue
+        # AI: a quote the model invented is removed, never shown as statute text
+        text, count = re.subn(rf"[„“\"]{re.escape(quote)}[“”\"]", reference, text, count=1)
+        replaced += count
+    return answer.model_copy(update={"answer_en": text}), replaced
 
 
 def append_deadline_reminder(answer_text: str, triage: TriageResult | None) -> str:
