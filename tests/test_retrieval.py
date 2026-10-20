@@ -294,8 +294,8 @@ def test_d8_pinning_is_limited_and_respects_the_filter(monkeypatch: pytest.Monke
     assert "BGB-199" not in ids and "ZPO-699" not in ids
 
 
-def test_d8_pinning_is_off_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Without the switch, the fused order stays as it is."""
+def test_d8_pinning_can_be_switched_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With PIN_EXPLICIT_REFERENCES=off, the fused order stays as it is."""
     monkeypatch.setattr(config, "PIN_EXPLICIT_REFERENCES", False)
     fused = [chunk("BGB-200"), chunk("BGB-201")]
     monkeypatch.setattr(retrieval, "_run_queries", lambda *a, **kw: fused)
