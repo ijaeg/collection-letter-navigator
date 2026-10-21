@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 import shutil
 import tempfile
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from functools import cache
@@ -26,7 +27,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import ValidationError
 from rank_bm25 import BM25Okapi
 
-from collection_letter_navigator import config, llm
+from collection_letter_navigator import config, guards, llm
 from collection_letter_navigator.schemas import LawCode, RetrievalPlan, TriageResult
 
 #: Retrieval modes that can be selected in the developer settings (FR-07 AC4).
@@ -164,20 +165,36 @@ def create_retrieval_plan(
     messages = [
         SystemMessage(llm.load_prompt("retrieval_plan")),
         HumanMessage(
-            f"<question>\n{question_en}\n</question>\n"
-            f"<context>\n{_triage_context(triage)}\n</context>"
+            guards.wrap_untrusted(question_en, "question")
+            + "\n"
+            + guards.wrap_untrusted(_triage_context(triage), "context")
         ),
     ]
     last_error: Exception | None = None
     for _ in range(1 + config.JSON_RETRY_ATTEMPTS):
         try:
-            reply = planner.invoke(messages)  # AI: the query-translation call
+            # AI: the query-translation call, with retries on rate limits and timeouts
+            started = time.perf_counter()
+            reply = llm.call_with_retry(lambda: planner.invoke(messages))
             plan = RetrievalPlan.model_validate(reply)
-            return _normalise_plan(plan, triage)
+            normalised = _normalise_plan(plan, triage)
+            llm.log_call(
+                "retrieval_plan",
+                {
+                    "seconds": round(time.perf_counter() - started, 2),
+                    "question": question_en,
+                    "plan": normalised.model_dump(),
+                },
+            )
+            return normalised
         except ValidationError as error:  # schema violated: one retry (NFR-02)
             last_error = error
-        except Exception as error:  # network, timeout, provider error
-            raise llm.LlmCallError(f"The search plan could not be created: {error}") from error
+        except llm.LlmCallError:
+            raise
+        except Exception as error:  # anything else the client raises
+            raise llm.LlmCallError(
+                f"The search plan could not be created: {llm.friendly_error_message(error)}"
+            ) from error
     raise llm.LlmCallError(f"The search plan was invalid: {last_error}")
 
 
