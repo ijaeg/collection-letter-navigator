@@ -12,15 +12,20 @@ NFR-03, §5, §12 D-1, §12 D-3
 
 from __future__ import annotations
 
+import json
 import os
-from collections.abc import Sequence
-from dataclasses import dataclass
+import time
+from collections.abc import Callable, Sequence
+from dataclasses import asdict, dataclass
+from datetime import datetime
 from typing import Any, Literal
 
+import openai
 from dotenv import load_dotenv
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.runnables import Runnable
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from pydantic import SecretStr
 
@@ -150,7 +155,7 @@ def build_chat_model(
         max_completion_tokens=max_tokens or config.MAX_TOKENS,  # AI: reasoning tokens count too
         temperature=temperature,
         timeout=config.REQUEST_TIMEOUT_SECONDS,
-        max_retries=config.MAX_RETRIES,
+        max_retries=0,  # retries happen in invoke_with_retry, so they can be tested (NFR-02)
         extra_body={
             "reasoning": {"effort": reasoning_effort or config.REASONING_EFFORT},
             "provider": config.PROVIDER_PREFERENCES,  # D-3: no training, zero data retention
@@ -222,17 +227,59 @@ def apply_embedding_prefix(text: str, kind: EmbeddingInputKind) -> str:
     return f"{prefix}{text}"
 
 
+#: Errors worth a retry: rate limits, server errors, timeouts, broken connections (NFR-02).
+_RETRYABLE = (
+    openai.RateLimitError,
+    openai.InternalServerError,
+    openai.APITimeoutError,
+    openai.APIConnectionError,
+)
+
+
+def call_with_retry[T](call: Callable[[], T], *, sleep: Callable[[float], None] = time.sleep) -> T:
+    """Run one LLM request, retrying on rate limits, server errors and timeouts.
+
+    Args:
+        call: The request, e.g. ``lambda: model.invoke(messages)``.
+        sleep: Wait function between attempts; replaced in tests.
+
+    Returns:
+        Whatever the request returns.
+
+    Raises:
+        LlmCallError: With a friendly message, after at most
+            :data:`config.MAX_RETRIES` retries or at once for errors a retry
+            cannot fix (e.g. a rejected key).
+
+    Related: NFR-02
+    """
+    attempt = 0
+    while True:
+        try:
+            return call()  # AI: one request to OpenRouter
+        except _RETRYABLE as error:
+            if attempt >= config.MAX_RETRIES:
+                raise LlmCallError(friendly_error_message(error)) from error
+            sleep(config.RETRY_BACKOFF_SECONDS * 2**attempt)  # 1 s, 2 s, ...
+            attempt += 1
+        except openai.OpenAIError as error:  # auth, bad request, ...: retrying does not help
+            raise LlmCallError(friendly_error_message(error)) from error
+
+
 def invoke_with_retry(
-    model: BaseChatModel,
+    model: Runnable[Any, Any],
     messages: Sequence[BaseMessage],
+    *,
+    sleep: Callable[[float], None] = time.sleep,
     **kwargs: Any,
 ) -> AIMessage:
     """Invoke a chat model, retrying on rate limits and server errors.
 
     Args:
-        model: The chat model to invoke.
+        model: The chat model to invoke, possibly with tools bound.
         messages: The message sequence to send.
-        **kwargs: Extra arguments forwarded to the model (e.g. bound tools).
+        sleep: Wait function between attempts; replaced in tests.
+        **kwargs: Extra arguments forwarded to the model.
 
     Returns:
         The model's reply.
@@ -243,7 +290,13 @@ def invoke_with_retry(
 
     Related: NFR-02, NFR-03
     """
-    raise NotImplementedError("NFR-02: retry 429/5xx with exponential backoff, max 2 retries")
+    reply = call_with_retry(lambda: model.invoke(list(messages), **kwargs), sleep=sleep)
+    if not isinstance(reply, AIMessage):
+        raise LlmCallError("The model returned an unexpected reply.")
+    finish = reply.response_metadata.get("finish_reason")
+    if finish == "length" and not reply.content and not reply.tool_calls:
+        raise LlmLengthError(friendly_error_message(LlmLengthError()))
+    return reply
 
 
 def extract_usage(response: AIMessage, model: str) -> LlmUsage:
@@ -258,7 +311,17 @@ def extract_usage(response: AIMessage, model: str) -> LlmUsage:
 
     Related: FR-19 AC1, FR-19 AC2, NFR-03
     """
-    raise NotImplementedError("FR-19 AC1: collect prompt, completion and reasoning tokens")
+    usage: dict[str, Any] = dict(response.usage_metadata or {})
+    details = usage.get("output_token_details") or {}
+    token_usage = response.response_metadata.get("token_usage") or {}
+    cost = token_usage.get("cost")  # OpenRouter reports the cost when usage accounting is on
+    return LlmUsage(
+        model=model,
+        prompt_tokens=int(usage.get("input_tokens", 0)),
+        completion_tokens=int(usage.get("output_tokens", 0)),
+        reasoning_tokens=int(details.get("reasoning", 0)),
+        cost_usd=float(cost) if isinstance(cost, int | float) else None,
+    )
 
 
 def friendly_error_message(error: Exception) -> str:
@@ -274,7 +337,29 @@ def friendly_error_message(error: Exception) -> str:
 
     Related: FR-23 AC3, NFR-02
     """
-    raise NotImplementedError("NFR-02: map errors to friendly messages, never a stack trace")
+    if isinstance(error, LlmLengthError):
+        return (
+            "The model ran out of its token budget before answering. Please ask a shorter or "
+            "more specific question."
+        )
+    if isinstance(error, LlmCallError):
+        return str(error)
+    if isinstance(error, openai.AuthenticationError | openai.PermissionDeniedError):
+        return (
+            f"The API key was rejected. Check {config.OPENROUTER_API_KEY_ENV} (see .env.example)."
+        )
+    if isinstance(error, openai.RateLimitError):
+        return "The model service is busy (rate limit). Please wait a moment and try again."
+    if isinstance(error, openai.APITimeoutError):
+        return (
+            f"The model did not answer within {config.REQUEST_TIMEOUT_SECONDS} seconds. "
+            "Please try again."
+        )
+    if isinstance(error, openai.APIConnectionError):
+        return "The model service could not be reached. Check the internet connection."
+    if isinstance(error, openai.APIStatusError):
+        return f"The model service reported an error (HTTP {error.status_code}). Please try again."
+    return "Something went wrong while contacting the model. Please try again."
 
 
 def log_call(label: str, payload: dict[str, Any]) -> None:
@@ -292,4 +377,17 @@ def log_call(label: str, payload: dict[str, Any]) -> None:
 
     Related: FR-23 AC2
     """
-    raise NotImplementedError("FR-23 AC2: write the opt-in debug log only when DEBUG_LOG=1")
+    if not config.DEBUG_LOG_ENABLED:
+        return
+    config.LOG_DIR.mkdir(parents=True, exist_ok=True)
+    record = {"time": datetime.now().isoformat(timespec="seconds"), "label": label, **payload}
+    with config.DEBUG_LOG_PATH.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+
+
+def usage_as_dict(usage: LlmUsage) -> dict[str, Any]:
+    """Serialise a usage record, e.g. for the debug log or the UI.
+
+    Related: FR-19 AC1, FR-23 AC2
+    """
+    return asdict(usage)
