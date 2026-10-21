@@ -15,7 +15,7 @@ from typing import Any
 import pytest
 from langchain_core.messages import AIMessage, BaseMessage
 
-from collection_letter_navigator import retrieval
+from collection_letter_navigator import config, retrieval
 from collection_letter_navigator.retrieval import RetrievalOutcome, ScoredChunk
 from collection_letter_navigator.schemas import RetrievalPlan
 
@@ -88,6 +88,15 @@ def final_answer(text: str, ids: list[str], out_of_scope: bool = False) -> AIMes
             "output_token_details": {"reasoning": 64},
         },
     )
+
+
+@pytest.fixture(autouse=True)
+def no_debug_log(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests never write to logs/, even if DEBUG_LOG=1 is exported (FR-23 AC2).
+
+    Tests of the debug log switch it on themselves and redirect it to tmp_path.
+    """
+    monkeypatch.setattr(config, "DEBUG_LOG_ENABLED", False)
 
 
 @pytest.fixture

@@ -271,3 +271,25 @@ def test_fr09_invented_id_from_the_model_is_dropped_end_to_end(
     outcome = answer.answer_question("How long?", mock_retrieved_chunks, model=model)
     assert outcome.answer.source_chunk_ids == ["ZPO-692"]
     assert outcome.dropped_chunk_ids == ["BGB-999"]
+
+
+def test_fr21_ac2_reminder_is_not_repeated_when_the_date_is_written_out() -> None:
+    """ "28 October 2026" in the answer counts as naming the deadline (smoke test 1)."""
+    text = "The objection period ends on Wednesday, 28 October 2026."
+    assert answer.append_deadline_reminder(text, COURT) == text
+
+
+def test_fr21_ac7_out_of_scope_answer_always_refers_to_counselling(
+    mock_retrieved_chunks: RetrievalOutcome,
+) -> None:
+    """The model's 'not found' for an out-of-scope topic becomes a clear referral (smoke test 7)."""
+    model = FakeChatModel(
+        [final_answer("I could not find this in the knowledge base.", [], out_of_scope=True)]
+    )
+    outcome = answer.answer_question(
+        "How much salary can be garnished?", mock_retrieved_chunks, model=model
+    )
+    assert outcome.answer.answer_en == answer.OUT_OF_SCOPE_EN
+    assert answer.ensure_referral("Garnishment is not covered.").endswith(answer.REFERRAL_EN)
+    covered = "Please contact a debt counselling service."
+    assert answer.ensure_referral(covered) == covered

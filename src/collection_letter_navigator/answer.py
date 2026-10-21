@@ -43,6 +43,18 @@ NOT_FOUND_EN = (
     "links are shown below."
 )
 
+#: Referral added to every out-of-scope answer (FR-21 AC5, FR-21 AC7).
+REFERRAL_EN = (
+    "For help with this, contact a free debt counselling service (Schuldnerberatung) or a "
+    "consumer advice centre (Verbraucherzentrale); the links are shown below."
+)
+
+#: Answer used when the model flags a question as out of scope without a text of its own.
+OUT_OF_SCOPE_EN = (
+    "This question is outside what this app covers: it explains debt collection letters and "
+    "court payment orders. " + REFERRAL_EN
+)
+
 #: Message returned to the model for tool calls beyond the limit (FR-10 AC5).
 TOOL_LIMIT_MESSAGE = (
     "Tool call limit reached. Do not call further tools; answer with the results you have."
@@ -220,7 +232,9 @@ def answer_question(
     if not kept and not answer.out_of_scope and not tool_results:
         answer = no_sources_answer()  # FR-08 AC3: no supporting source, no answer
     answer, replaced = enforce_quote_fidelity(answer, kept)
-    if not answer.out_of_scope:
+    if answer.out_of_scope:
+        answer = answer.model_copy(update={"answer_en": ensure_referral(answer.answer_en)})
+    else:
         answer = answer.model_copy(
             update={"answer_en": append_deadline_reminder(answer.answer_en, triage)}
         )
@@ -450,6 +464,40 @@ def enforce_quote_fidelity(
     return answer.model_copy(update={"answer_en": text}), replaced
 
 
+def ensure_referral(answer_text: str) -> str:
+    """Make sure an out-of-scope answer points to free counselling.
+
+    The model's own "not found" sentence is replaced by a clear out-of-scope
+    message; any other text gets the referral appended unless it already names
+    counselling or a consumer advice centre.
+
+    Args:
+        answer_text: The English answer of an out-of-scope question.
+
+    Returns:
+        The answer text with a referral.
+
+    Related: FR-21 AC5, FR-21 AC7, FR-21 AC9
+    """
+    if answer_text.strip().startswith("I could not find this in the knowledge base"):
+        return OUT_OF_SCOPE_EN
+    lowered = answer_text.lower()
+    if "counsel" in lowered or "verbraucherzentrale" in lowered:
+        return answer_text
+    return f"{answer_text}\n\n{REFERRAL_EN}"
+
+
+def _date_mentioned(text: str, day: date) -> bool:
+    """True if the text names the date in a common English or German format."""
+    variants = (
+        day.isoformat(),
+        day.strftime("%d.%m.%Y"),
+        f"{day.day} {day.strftime('%B')} {day.year}",
+        f"{day.strftime('%B')} {day.day}, {day.year}",
+    )
+    return any(variant in text for variant in variants)
+
+
 def append_deadline_reminder(answer_text: str, triage: TriageResult | None) -> str:
     """Append the one-line deadline reminder to answers about what to do next.
 
@@ -471,7 +519,7 @@ def append_deadline_reminder(answer_text: str, triage: TriageResult | None) -> s
     if outcome.result is None:
         return answer_text
     end = str(outcome.result["period_end"])
-    if end in answer_text:  # the answer already names the date
+    if _date_mentioned(answer_text, date.fromisoformat(end)):  # the answer already names it
         return answer_text
     weekday = outcome.result["period_end_weekday"]
     procedure = outcome.result["procedure"]
