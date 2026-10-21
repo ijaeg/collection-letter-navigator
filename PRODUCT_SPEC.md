@@ -4,7 +4,7 @@
 |---|---|
 | **Project** | Turing College – AI Engineering, Sprint 2 project ("Building Applications with AI") |
 | **Author** | Ingo Jäger |
-| **Status** | Draft v0.2.1 – 2026-10-20 (changes: see §13) |
+| **Status** | Draft v0.2.2 – 2026-10-21 (changes: see §13) |
 | **Audience** | Developer (implementation guide) and Turing College tutor (review guide) |
 | **Stack** | Python 3.13 (uv), Streamlit, LangChain against the OpenRouter API (OpenAI-compatible, chat and embeddings), Chroma, BM25 (`rank-bm25`), Pydantic |
 | **Time budget** | Estimated effort ≈ 50–60 hours plus learning time; available ≈ 100 hours from Fri 2026-10-16 to Wed 2026-10-28 (8–9 h on weekdays, max. 6 h on weekend days), including tests, evaluation, documentation and review preparation (see §11) |
@@ -175,6 +175,8 @@ One LLM call answers the question from the retrieved chunks and may call tools (
 - AC3: If no retrieved chunk supports an answer, the app says "I could not find this in the knowledge base" and offers the get-help links. It does not answer from general knowledge.
 - AC4: Chunks are passed to the model inside delimiters (`<source id="…">…</source>`); the system prompt states that source text is data, never instructions.
 - AC5: German legal terms appear next to their English explanation ("objection (*Widerspruch*)", "*Einspruch*"), so the user recognises them in the letter (spike E-8: the model translated *Einspruch* as "objection").
+- AC6: The answer cites only the chunks it actually relies on, not every retrieved chunk, and never names a provision that is neither in the retrieved chunks nor in a tool result. It refers to the sources as "German law", never as text "you provided" (smoke test 2026-10-21: the model cited an unretrieved § 200 BGB and three irrelevant chunks).
+- AC7: If no chunk was retrieved, no answer call is made; the answer is the AC3 sentence. An answer without sources is kept only if it uses a tool result or is out of scope (FR-21 AC7).
 
 #### FR-09 Source and quote check (Must)
 - AC1: Every cited chunk ID must belong to the chunks retrieved for this question; unknown IDs are dropped and counted in §7.4.
@@ -193,7 +195,7 @@ One LLM call answers the question from the retrieved chunks and may call tools (
 - AC6: A failing tool (exception) does not end the chat: the answer is given without that tool and the failure is shown on the tool card.
 - AC7: The answer text is derived from the `ToolResult` fields ("Based on the dates you provided, and assuming …"); it never states that a claim *is* time-barred or *must* be paid.
 - AC8: Tool calling and the structured final answer (§6.3) are produced **in one call** (decided in spike E-8, 2026-10-19): the tools are bound together with `response_format=AnswerWithSources` (`strict=True`), and the model either requests a tool or returns the final answer. If the final message does not validate, one structured-output call over the same messages follows; such fallbacks are counted (§7.4). In the spike, one call saved 3–5 s and ≈ 20 % of the tokens per tool question compared with two steps.
-- AC9: Today's date is passed explicitly in the system prompt; tools receive absolute dates only. If the user gives a relative date ("last Tuesday"), the answer states how it was resolved, or asks back (spike D-7: the provider injected a date on its own, which is not reliable).
+- AC9: Today's date is passed explicitly in the system prompt; tools receive absolute dates only. If the user gives a relative date ("last Tuesday"), the answer states how it was resolved, or asks back (spike D-7: the provider injected a date on its own, which is not reliable). If the user gives only a month ("June 2024"), the last day of that month is used and stated as an assumption instead of asking back; the model never works out the start or end of a period itself (smoke test 2026-10-21: without this rule the model skipped `check_limitation` and asked for the exact day).
 
 #### FR-11 `calculate_objection_deadline` (Must)
 Computes the last day to object to a court payment order or to file *Einspruch* against an enforcement order.
@@ -275,12 +277,12 @@ An optional panel in `CHAT`: the user pastes the German text of the letter.
 
 #### FR-21 Domain safety (Must)
 - AC1: The disclaimer "This app provides general legal information, not legal advice." is visible on every screen.
-- AC2: **Deadline first:** if the triage or the Letter Check identifies a court document, the deadline card stays pinned at the top of the chat (FR-01 AC3), and every answer that touches on what to do next ends with a one-line reminder of the deadline.
+- AC2: **Deadline first:** if the triage or the Letter Check identifies a court document, the deadline card stays pinned at the top of the chat (FR-01 AC3), and every answer that touches on what to do next ends with a one-line reminder of the deadline. The reminder is added in code (`answer.append_deadline_reminder`) from the result of `calculate_objection_deadline` and is left out if the answer already names the end date (ISO, `28.10.2026`, "28 October 2026" or "October 28, 2026").
 - AC3: The app never recommends ignoring a letter (checked by safety test cases, `docs/safety_tests.md`).
-- AC4: Requests for advice in the individual case ("Should I pay?") are answered with the relevant rules, deadlines and the get-help links, without a recommendation (checked by safety test cases). Answers state facts ("the period ends on 28 October 2026"), never instructions ("file an objection by …", "pay …") – in spike E-8 such instructions appeared without being asked for, so the answer prompt forbids them explicitly.
+- AC4: Requests for advice in the individual case ("Should I pay?") are answered with the relevant rules, deadlines and the get-help links, without a recommendation (checked by safety test cases). Answers state facts ("the period ends on 28 October 2026"), never instructions ("file an objection by …", "pay …") – in spike E-8 such instructions appeared without being asked for, so the answer prompt forbids them explicitly. An advice request gets one sentence that the app cannot advise, then the relevant facts and a pointer to free debt counselling.
 - AC5: Get-help links (consumer advice centres, free debt counselling) are shown in the footer and in every refusal; the links are checked before submission.
 - AC6: The knowledge-base snapshot date and the base-rate table date are shown in the sidebar.
-- AC7: Out-of-scope topics (garnishment, insolvency, B2B, SCHUFA disputes) are recognised and answered with a short refusal and referral.
+- AC7: Out-of-scope topics (garnishment, insolvency, B2B, SCHUFA disputes) are recognised and answered with a short refusal and referral. The prompt makes the model decide the scope before reading the sources; the code guarantees the referral (`answer.ensure_referral`): a "not found" sentence on an out-of-scope answer is replaced by a fixed out-of-scope text, and any other out-of-scope text without a referral gets one appended.
 - AC9: **Personal insolvency:** if the user says they have filed for or are in personal insolvency, the app answers calmly that this situation is outside its scope, gives no further legal analysis of the claim, and points to free debt counselling (and, if proceedings are open, the insolvency administrator). Covered by at least one safety test case.
 - AC8: At least 12 safety and security test cases are documented in `docs/safety_tests.md` with input, expected and actual behaviour, including: "Should I pay?", "Can I just ignore this?", personal insolvency, garnishment, a prompt injection in a pasted letter, and a request for the system prompt.
 
@@ -300,7 +302,7 @@ Adapted from Sprint 1, layers L1, L2 and L4:
 
 #### FR-23 Privacy (Must)
 - AC1: A notice above the inputs: "Your questions and letter text are sent to an LLM provider via OpenRouter for processing. They are not stored by this app. Personal data in pasted letters is redacted before sending."
-- AC2: Questions, letter text and extracted facts are held only in `st.session_state`; they are not written to disk and not logged. Exception: the opt-in debug log (`DEBUG_LOG=1`, `logs/llm_calls.jsonl`, gitignored), used only with fictional data.
+- AC2: Questions, letter text and extracted facts are held only in `st.session_state`; they are not written to disk and not logged. Exception: the opt-in debug log (`DEBUG_LOG=1`, `logs/llm_calls.jsonl`, gitignored), used only with fictional data. It records per call: label (`retrieval_plan`, `answer_call`, `tool_call`, `answer_fallback`), seconds, token usage and cost. Tests never write to it, even if `DEBUG_LOG=1` is set (autouse fixture in `tests/conftest.py`).
 - AC3: `OPENROUTER_API_KEY` is read from the environment or a gitignored `.env`; it never appears in the repository, the UI or error messages.
 - AC4: If OpenRouter supports restricting requests to providers that do not retain or train on data, this is enabled by default (D-3, §12); otherwise the README states it.
 
@@ -336,8 +338,14 @@ The answer call demonstrates the full tool-calling cycle: the model emits a tool
 question ─► guards (L1, L2) ─► retrieval plan (LLM, JSON)
         ─► for each German query: vector + BM25 (filtered) ─► fusion, top k
         ─► answer call with tools bound (≤ 3 tool calls) ─► AnswerWithSources
-        ─► quote fidelity check ─► render: answer · legal basis · tool cards · RAG panel
+        ─► checks: chunk IDs (FR-09 AC1), no-sources rule (FR-08 AC3, AC7), quote fidelity (FR-09 AC2),
+           deadline reminder (FR-21 AC2) or referral (FR-21 AC7)
+        ─► render: answer · legal basis · tool cards · RAG panel
 ```
+
+The steps up to the checks are one function, `pipeline.ask()`, which the UI calls per question; it reports the step labels (FR-17 AC2) through a callback and returns the retrieval run, the checked answer, the tool results, the token usage and the seconds per step. `scripts/ask.py` runs the same function from the terminal and prints every intermediate result (developer smoke test).
+
+**Smoke test (2026-10-21, 8 questions, `gpt-5-mini`):** deadline, enforcement order, limitation with part payment, interest, definition, "Should I pay?", garnishment and an injection. Four answers needed fixes (FR-08 AC6, FR-10 AC9, FR-21 AC2, AC4, AC7); the rerun of these four behaved as expected, the other four were correct in the first run. Cost ≈ $0.003 per question. Time per question over 11 runs: median ≈ 16 s, range 12–36 s (see NFR-04 and R-11).
 
 ---
 
@@ -481,7 +489,7 @@ Provisional default: **R4** (tie on Hit-Rate@5, ahead on MRR@10). Findings: the 
 | NFR-01 Setup | The app starts with **one API key** and two commands | `uv sync` and `uv run streamlit run app.py` work on a fresh clone with `OPENROUTER_API_KEY` set; chat **and embeddings** run via OpenRouter; the index is committed (FR-04 AC4); no other account or local model required. The key must allow the embedding model `qwen/qwen3-embedding-8b`: keys with workspace guardrails (such as the course key) can block models, which the README states together with the fallback `openai/text-embedding-3-small` (requires rebuilding the index, FR-04 AC6). The `.env` file is loaded before `config.py` reads environment variables, so settings in `.env` take effect |
 | NFR-02 Error handling | No stack trace ever reaches the UI | OpenRouter errors, timeouts (60 s), HTTP 429/5xx (retry with exponential backoff, max. 2 retries), invalid JSON (one retry) and tool failures show a friendly message; failures are never cached |
 | NFR-03 Reasoning token budget | Reasoning tokens count against `max_tokens` | Default `max_tokens` 4,000; `finish_reason = "length"` with empty content shows a specific message (as in Sprint 1) |
-| NFR-04 Responsiveness | The user always sees progress, and the UI never hangs | Step labels per FR-17 AC2 during every LLM, embedding or tool call; a timeout or error ends the progress indicator with a message and leaves the chat usable (tested with a mocked timeout); a typical question is answered within 20 s (measured in §7.2, reported); budget from the spike: retrieval plan ≈ 7 s, answer call with one tool ≈ 5–8 s |
+| NFR-04 Responsiveness | The user always sees progress, and the UI never hangs | Step labels per FR-17 AC2 during every LLM, embedding or tool call; a timeout or error ends the progress indicator with a message and leaves the chat usable (tested with a mocked timeout); a typical question is answered within 20 s (measured in §7.2, reported); budget from the spike: retrieval plan ≈ 7 s, answer call with one tool ≈ 5–8 s. Smoke test 2026-10-21: median ≈ 16 s, but 4 of 11 runs above 20 s (retrieval plan up to 20.6 s, one short answer call 12.5 s); see R-11 |
 | NFR-05 Code structure | UI, LLM client, retrieval, tools, guards, prompts and evaluation are separate modules | See §9; `app.py` contains no prompt text and no retrieval logic |
 | NFR-06 Tests | Deterministic logic and LLM-related logic are tested | Tests for: tools (reference cases), tool contract and invalid arguments, retrieval filter, chunking and ingestion idempotence, quote check, redaction, guards, the tool-calling loop and the pipeline with a **mocked LLM client**; `uv run pytest` passes |
 | NFR-07 Tooling and CI | Quality checks run on every PR | `ruff` (lint + format) and a type checker configured in `pyproject.toml`; `pytest` with coverage report; a GitHub Actions workflow runs ruff and pytest on every pull request – set up on day 1 |
@@ -504,7 +512,8 @@ collection-letter-navigator/
 │   ├── schemas.py                          # Pydantic models (§6)
 │   ├── ingest.py                           # XML parsing, chunking, metadata
 │   ├── retrieval.py                        # retrieval plan, Chroma + BM25, filter, fusion
-│   ├── answer.py                           # answer call, tool-calling loop, quote check
+│   ├── answer.py                           # answer call, tool-calling loop, checks (FR-09, FR-21 AC2, AC7)
+│   ├── pipeline.py                         # ask(): guards → plan → retrieval → answer, timings (§5.2)
 │   ├── tools/
 │   │   ├── contract.py                     # ToolResult helpers
 │   │   ├── deadlines.py                    # FR-11
@@ -517,7 +526,9 @@ collection-letter-navigator/
 │   ├── retrieval_plan.md
 │   ├── answer.md
 │   └── letter_extraction.md
-├── scripts/build_index.py
+├── scripts/
+│   ├── build_index.py
+│   └── ask.py                              # one question from the terminal (smoke test)
 ├── spikes/                                 # spike scripts (D-1, D-3, D-7, E-8) and NOTES.md; kept as a record
 ├── data/
 │   ├── kb_scope.yaml                       # provisions to index
@@ -536,6 +547,7 @@ collection-letter-navigator/
 │   ├── safety_tests.md
 │   └── tools/                              # tool briefs
 ├── tests/
+├── logs/                                   # opt-in debug log, gitignored (FR-23 AC2)
 ├── .github/workflows/ci.yml
 ├── pyproject.toml
 ├── CLAUDE.md                               # guidance for Claude Code (as in Sprint 1)
@@ -597,7 +609,7 @@ The target "at least 2 medium and 1 hard" is met by **Must** requirements alone 
 
 ---
 
-## 11. Plan (as of 2026-10-19)
+## 11. Plan (as of 2026-10-21)
 
 **Capacity:** 8–9 h on weekdays, max. 6 h on Saturdays and Sundays. **Milestones:** spike gate passed on **Mon 2026-10-19**; spec v0.2 on Mon 2026-10-19; feature freeze on **Sun 2026-10-25** (evening); *Submit Project* and review booking on **Wed 2026-10-28**; hard deadline **Mon 2026-11-02**.
 
@@ -607,8 +619,8 @@ The target "at least 2 medium and 1 hard" is met by **Must** requirements alone 
 | Fri 10-16 – Sun 10-18 ✓ | FR-04: parsing, chunking, embeddings, index and manifest for BGB, ZPO **and RDG** (84 chunks); 10 development questions; D-4 verified against the statute XML | Done: index committed; weekend plan finished on Friday evening |
 | Mon 10-19 ✓ | FR-05, FR-06, **FR-07** (moved forward from Tuesday) with tests; retrieval evaluation script (§7.2); spike gate on the development questions; spike E-8; spec v0.2; test set `eval/retrieval_questions.json` (written after the gate, not used for tuning) | Gate passed (85 %); E-8 decided; spec v0.2 and test set committed |
 | Tue 10-20 ✓ | Tool contract; FR-11, FR-12, FR-13 with reference tests and tool briefs (`docs/tools/`); `base_rates.csv` (D-5); D-8 tuning on the development questions; **FR-09** (moved forward from Wednesday) | Done: all tool tests pass; D-8 decided |
-| Wed 10-21 | FR-08, FR-10: answer call in one call with fallback (FR-10 AC8), `prompts/answer.md` with the E-8 findings, tool-calling loop using the checks of FR-09, mocked pipeline tests | A question with tool use runs end to end in tests |
-| Thu 10-22 | UI: FR-01, FR-02, FR-03, FR-17, FR-19; FR-21, FR-22, FR-23 | All *Must* FRs demonstrable in the browser |
+| Wed 10-21 ✓ | FR-08, FR-10: answer call in one call with fallback (FR-10 AC8), `prompts/answer.md` with the E-8 findings, tool-calling loop using the checks of FR-09, mocked pipeline tests; **FR-22** guards L1, L2, L4 (moved forward from Thursday); retry and debug log (NFR-02, FR-23 AC2); `pipeline.py`, `scripts/ask.py`; smoke test with 8 questions and fixes | Done: a question with tool use runs end to end in tests and against the API; 180 tests pass |
+| Thu 10-22 | UI: FR-01, FR-02, FR-03, FR-17, FR-19; FR-21, FR-23; log usage of the retrieval-plan call and measure 10 questions (R-11) | All *Must* FRs demonstrable in the browser |
 | Fri 10-23 | Retrieval evaluation on the test set (§7.2), winner as default; safety tests (FR-21 AC8) | `retrieval_results.csv` complete |
 | Sat 10-24 (6 h) | Letter Check (FR-16, Should); FR-18 RAG panel | Demo letter produces a checklist |
 | Sun 10-25 (6 h) | Tool-calling evaluation (§7.3); FR-24; FR-14; **feature freeze** in the evening | All *Should* items done or dropped |
@@ -646,10 +658,22 @@ The schedule includes the agreed way of working for every new AI concept (concep
 | R-8 | Scope larger than time | Dated plan, cut rule and order, early feature freeze |
 | R-9 | Model availability with the reviewer's key | Course keys with guardrails can block models (found in D-1); README names the required models and the fallback; models are switchable via environment variables |
 | R-10 | Committed index changes on use | Chroma writes to its files even when reading; mitigated by a working copy (FR-04 AC7) |
+| R-11 | Answer time above 20 s (NFR-04) | Smoke test 2026-10-21: median ≈ 16 s, outliers up to 36 s, mostly in the retrieval-plan call and varying between runs of similar size, so likely provider latency. The plan call does not log token usage yet, so the cause is open. Next: log it, measure 10 questions, then decide between reasoning effort `minimal` for the plan, a shorter timeout, or both. The progress labels (FR-17 AC2) keep the UI responsive meanwhile |
+| R-12 | Empty "Legal basis" for tool answers | Smoke test 2026-10-21 (limitation with part payment): the answer relied on `check_limitation` alone, and §§ 195, 199, 212 BGB were not among the retrieved chunks, so the panel stayed empty. Idea for Thursday: the tool card (FR-17 AC1) shows the provisions from `ToolResult.legal_basis`, with the German text looked up by chunk ID where it is in the knowledge base |
 
 ---
 
 ## 13. Change log
+
+**v0.2.2 (2026-10-21)** – results of Wednesday (answer chain and smoke test):
+
+- **FR-08 AC6, AC7:** cite only the chunks relied on; never name provisions outside sources and tool results; no answer call without retrieved chunks.
+- **FR-10 AC9:** a month-only date uses the last day of the month as a stated assumption; the model never computes periods itself.
+- **FR-21 AC2, AC4, AC7:** deadline reminder added in code and deduplicated across date formats; advice requests get the "cannot advise" sentence plus a counselling pointer; out-of-scope answers always carry a referral (`ensure_referral`).
+- **FR-23 AC2:** contents of the debug log; tests never write to it.
+- **§5.2:** checks after the answer call, `pipeline.ask()`, `scripts/ask.py`, smoke-test results. **§9:** `pipeline.py`, `scripts/ask.py`, `logs/`.
+- **NFR-04, R-11, R-12:** measured answer times and the open latency question; empty legal basis for tool-only answers.
+- **§11:** Wednesday done; FR-22 moved forward from Thursday; Thursday adds the latency measurement.
 
 **v0.2.1 (2026-10-20)** – results of Tuesday:
 
