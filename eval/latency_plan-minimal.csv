@@ -1,0 +1,11 @@
+id,run,plan_s,retrieval_s,answer_s,total_s,plan_completion_tokens,plan_reasoning_tokens,answer_calls,answer_completion_tokens,answer_reasoning_tokens,tools,chat_model,plan_reasoning_effort,answer_reasoning_effort
+D01,1,2.3,2.1,13.2,17.5,110,0,2,944,512,calculate_objection_deadline,openai/gpt-5-mini,minimal,low
+D02,1,2.0,7.9,19.2,29.0,113,0,2,740,256,calculate_objection_deadline,openai/gpt-5-mini,minimal,low
+D03,1,2.1,0.7,10.0,12.8,103,0,2,722,256,calculate_objection_deadline,openai/gpt-5-mini,minimal,low
+D04,1,1.9,1.5,13.0,16.3,144,0,2,730,448,calculate_objection_deadline,openai/gpt-5-mini,minimal,low
+D05,1,2.5,8.5,11.9,22.9,143,0,2,940,512,check_limitation,openai/gpt-5-mini,minimal,low
+D06,1,2.1,1.1,5.1,8.4,133,0,1,406,192,,openai/gpt-5-mini,minimal,low
+D07,1,2.1,1.6,6.8,10.4,114,0,1,810,320,,openai/gpt-5-mini,minimal,low
+D08,1,2.8,2.1,9.6,14.4,111,0,1,519,128,,openai/gpt-5-mini,minimal,low
+D09,1,11.8,8.3,8.2,28.3,78,0,1,401,192,,openai/gpt-5-mini,minimal,low
+D10,1,1.4,1.0,7.1,9.5,99,0,1,288,192,,openai/gpt-5-mini,minimal,low

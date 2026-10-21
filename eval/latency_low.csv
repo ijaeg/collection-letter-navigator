@@ -1,0 +1,11 @@
+id,run,plan_s,retrieval_s,answer_s,total_s,plan_completion_tokens,plan_reasoning_tokens,answer_calls,answer_completion_tokens,answer_reasoning_tokens,tools,chat_model,plan_reasoning_effort,answer_reasoning_effort
+D01,1,7.8,14.1,18.3,40.2,211,64,2,812,448,calculate_objection_deadline,openai/gpt-5-mini,low,low
+D02,1,5.0,8.1,20.0,33.1,291,192,2,788,472,calculate_objection_deadline,openai/gpt-5-mini,low,low
+D03,1,6.0,2.5,26.4,35.0,252,128,2,961,640,calculate_objection_deadline,openai/gpt-5-mini,low,low
+D04,1,4.4,7.6,16.6,28.6,362,256,2,846,448,calculate_objection_deadline,openai/gpt-5-mini,low,low
+D05,1,10.4,44.8,24.4,79.6,461,320,2,946,512,check_limitation,openai/gpt-5-mini,low,low
+D06,1,8.2,1.8,5.0,15.1,307,192,1,377,128,,openai/gpt-5-mini,low,low
+D07,1,6.9,3.3,13.7,24.0,622,512,1,547,256,,openai/gpt-5-mini,low,low
+D08,1,9.7,4.7,13.4,27.7,193,64,1,761,448,,openai/gpt-5-mini,low,low
+D09,1,5.1,2.3,6.4,13.8,356,192,1,521,256,,openai/gpt-5-mini,low,low
+D10,1,11.0,4.3,11.2,26.5,452,320,1,635,192,,openai/gpt-5-mini,low,low
