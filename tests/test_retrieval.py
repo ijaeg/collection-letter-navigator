@@ -17,6 +17,7 @@ import pytest
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_core.embeddings import DeterministicFakeEmbedding
+from langchain_core.messages import AIMessage
 
 from collection_letter_navigator import config, llm, retrieval
 from collection_letter_navigator.retrieval import ScoredChunk
@@ -87,6 +88,24 @@ def test_fr05_ac1_invalid_plan_twice_raises_llm_call_error() -> None:
     model = FakeChatModel([plan_dict([]), plan_dict([])])
     with pytest.raises(llm.LlmCallError, match="invalid"):
         retrieval.create_retrieval_plan("How long?", model=model)  # type: ignore[arg-type]
+
+
+def test_r11_unparsable_raw_reply_is_retried_and_usage_recorded() -> None:
+    """With ``include_raw``, a failed parse is retried; each call's usage is kept (R-11)."""
+    raw = AIMessage(
+        content="{}",
+        usage_metadata={"input_tokens": 500, "output_tokens": 40, "total_tokens": 540},
+    )
+    model = FakeChatModel(
+        [
+            {"raw": raw, "parsed": None, "parsing_error": ValueError("bad json")},
+            {"raw": raw, "parsed": plan_dict(["Mahnbescheid"]), "parsing_error": None},
+        ]
+    )
+    usages: list[llm.LlmUsage] = []
+    plan = retrieval.create_retrieval_plan("What is it?", model=model, usages=usages)  # type: ignore[arg-type]
+    assert plan.queries_de == ["Mahnbescheid"]
+    assert [u.prompt_tokens for u in usages] == [500, 500]
 
 
 def test_fr05_provider_error_becomes_llm_call_error() -> None:

@@ -23,7 +23,7 @@ from typing import Any, Literal, cast, get_args
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import ValidationError
 from rank_bm25 import BM25Okapi
 
@@ -139,6 +139,7 @@ def create_retrieval_plan(
     triage: TriageResult | None = None,
     *,
     model: BaseChatModel | None = None,
+    usages: list[llm.LlmUsage] | None = None,
 ) -> RetrievalPlan:
     """Translate the English question into German queries and a law filter.
 
@@ -149,7 +150,9 @@ def create_retrieval_plan(
     Args:
         question_en: The user's question in English.
         triage: Triage answers used as context, if available.
-        model: Chat model to use; defaults to the configured model.
+        model: Chat model to use; defaults to the configured model with
+            :data:`config.PLAN_REASONING_EFFORT`.
+        usages: If given, the token usage of the call is appended (FR-19 AC1, R-11).
 
     Returns:
         The validated plan with 1–4 German queries and an optional law filter.
@@ -157,11 +160,12 @@ def create_retrieval_plan(
     Raises:
         LlmCallError: If the call fails or the output never validates.
 
-    Related: FR-05 AC1, FR-05 AC2, FR-06 AC1, FR-22
+    Related: FR-05 AC1, FR-05 AC2, FR-06 AC1, FR-19 AC1, FR-22, R-11
     """
-    chat = model or llm.build_chat_model()
-    # AI: structured output - LangChain sends the Pydantic schema and parses the reply back.
-    planner = chat.with_structured_output(RetrievalPlan, method="json_schema")
+    chat = model or llm.build_chat_model(reasoning_effort=config.PLAN_REASONING_EFFORT)
+    # AI: structured output - LangChain sends the Pydantic schema and parses the reply back;
+    # include_raw also returns the raw reply, which carries the token usage (R-11).
+    planner = chat.with_structured_output(RetrievalPlan, method="json_schema", include_raw=True)
     messages = [
         SystemMessage(llm.load_prompt("retrieval_plan")),
         HumanMessage(
@@ -176,7 +180,10 @@ def create_retrieval_plan(
             # AI: the query-translation call, with retries on rate limits and timeouts
             started = time.perf_counter()
             reply = llm.call_with_retry(lambda: planner.invoke(messages))
-            plan = RetrievalPlan.model_validate(reply)
+            parsed, usage = _split_structured_reply(reply)
+            if usage is not None and usages is not None:
+                usages.append(usage)
+            plan = RetrievalPlan.model_validate(parsed)
             normalised = _normalise_plan(plan, triage)
             llm.log_call(
                 "retrieval_plan",
@@ -184,6 +191,7 @@ def create_retrieval_plan(
                     "seconds": round(time.perf_counter() - started, 2),
                     "question": question_en,
                     "plan": normalised.model_dump(),
+                    "usage": llm.usage_as_dict(usage) if usage else None,
                 },
             )
             return normalised
@@ -196,6 +204,25 @@ def create_retrieval_plan(
                 f"The search plan could not be created: {llm.friendly_error_message(error)}"
             ) from error
     raise llm.LlmCallError(f"The search plan was invalid: {last_error}")
+
+
+def _split_structured_reply(reply: Any) -> tuple[Any, llm.LlmUsage | None]:
+    """Separate the parsed plan from the raw reply of an ``include_raw`` call.
+
+    Args:
+        reply: Either ``{"raw": AIMessage, "parsed": ..., "parsing_error": ...}``
+            or, from simple fakes, the parsed value itself.
+
+    Returns:
+        The parsed value (None if parsing failed) and the usage of the raw reply.
+
+    Related: FR-19 AC1, R-11
+    """
+    if isinstance(reply, dict) and {"raw", "parsed"} <= reply.keys():
+        raw = reply["raw"]
+        usage = llm.extract_usage(raw, config.CHAT_MODEL) if isinstance(raw, AIMessage) else None
+        return reply["parsed"], usage
+    return reply, None
 
 
 def passthrough_plan(question_en: str) -> RetrievalPlan:

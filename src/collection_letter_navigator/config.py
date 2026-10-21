@@ -90,6 +90,9 @@ PROVIDER_PREFERENCES: dict[str, object] = {"data_collection": "deny", "zdr": Tru
 #: Default reasoning effort passed to the chat model (FR-20 AC1, NFR-03).
 REASONING_EFFORT: str = os.getenv("REASONING_EFFORT", "low")
 
+#: Reasoning effort of the retrieval-plan call; may be lower than the answer's (R-11, NFR-04).
+PLAN_REASONING_EFFORT: str = os.getenv("PLAN_REASONING_EFFORT", REASONING_EFFORT)
+
 #: Token ceiling per call; reasoning tokens count against it (NFR-03).
 MAX_TOKENS: int = 4_000
 

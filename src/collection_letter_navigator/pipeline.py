@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 
-from collection_letter_navigator import answer, config, guards, retrieval
+from collection_letter_navigator import answer, config, guards, llm, retrieval
 from collection_letter_navigator.answer import AnswerOutcome
 from collection_letter_navigator.retrieval import RetrievalMode, RetrievalOutcome
 from collection_letter_navigator.schemas import TriageResult
@@ -34,6 +34,7 @@ class PipelineOutcome:
         retrieval: The retrieval run, including plan, filter and fallback (FR-18).
         answer: The checked answer with tool results and usage (FR-17, FR-19).
         seconds: Wall-clock seconds per step: ``plan``, ``retrieval``, ``answer``.
+        plan_usages: Token usage of the retrieval-plan call (empty without translation).
 
     Related: FR-17, FR-18, FR-19, NFR-04
     """
@@ -42,6 +43,12 @@ class PipelineOutcome:
     retrieval: RetrievalOutcome
     answer: AnswerOutcome
     seconds: dict[str, float] = field(default_factory=dict)
+    plan_usages: list[llm.LlmUsage] = field(default_factory=list)
+
+    @property
+    def usages(self) -> list[llm.LlmUsage]:
+        """Usage of every LLM call of this question, plan first (FR-19 AC1)."""
+        return [*self.plan_usages, *self.answer.usages]
 
 
 def ask(
@@ -84,12 +91,13 @@ def ask(
     question = guards.validate_question(question_en)  # L1: before any LLM call
     guards.assert_no_injection(question)  # L2
     seconds: dict[str, float] = {}
+    plan_usages: list[llm.LlmUsage] = []
 
     translate = config.QUERY_TRANSLATION_ENABLED if query_translation is None else query_translation
     started = time.perf_counter()
     if translate:
         report("Translating your question into German legal terms…")
-        plan = retrieval.create_retrieval_plan(question, triage, model=model)
+        plan = retrieval.create_retrieval_plan(question, triage, model=model, usages=plan_usages)
     else:
         plan = retrieval.passthrough_plan(question)
     seconds["plan"] = time.perf_counter() - started
@@ -103,4 +111,4 @@ def ask(
     started = time.perf_counter()
     outcome = answer.answer_question(question, found, triage=triage, history=history, model=model)
     seconds["answer"] = time.perf_counter() - started
-    return PipelineOutcome(question, found, outcome, seconds)
+    return PipelineOutcome(question, found, outcome, seconds, plan_usages)
