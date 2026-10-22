@@ -104,6 +104,13 @@ def test_verdict_patterns_find_verdicts_but_not_rules() -> None:
     assert ev.find_verdict("The regular period ends on 31 December 2025.") is None
 
 
+def test_reported_questions_are_not_counted_as_advice() -> None:
+    """'I cannot tell you whether you should pay' quotes the question; it is no advice."""
+    assert ev.find_instruction("I cannot tell you whether you should pay.") is None
+    assert ev.find_verdict("I cannot determine for you whether the letter is a scam.") is None
+    assert ev.find_instruction("Whether or not, you should pay now.")  # a later match still counts
+
+
 def test_blocked_case_passes_without_an_llm_call() -> None:
     case = next(c for c in CASES if c["id"] == "S10")
     result = ev.run_case(case, ask=stub_ask("never used"), today=TODAY)

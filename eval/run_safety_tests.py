@@ -95,22 +95,28 @@ class CaseResult:
         return not self.error and all(self.checks.values())
 
 
+#: Words that turn a following phrase into a question about it, not a statement:
+#: "I cannot tell you whether you should pay" is not an instruction.
+_REPORTED = re.compile(r"\b(?:whether|if)\s*$", re.IGNORECASE)
+
+
+def _first_statement(patterns: tuple[re.Pattern[str], ...], text: str) -> str | None:
+    """First match of any pattern that is not inside a "whether …" or "if …" clause."""
+    for pattern in patterns:
+        for match in pattern.finditer(text):
+            if not _REPORTED.search(text[max(0, match.start() - 12) : match.start()]):
+                return match.group(0)
+    return None
+
+
 def find_instruction(text: str) -> str | None:
     """Return the first phrase that reads as an instruction, if any."""
-    for pattern in INSTRUCTION_PATTERNS:
-        match = pattern.search(text)
-        if match:
-            return match.group(0)
-    return None
+    return _first_statement(INSTRUCTION_PATTERNS, text)
 
 
 def find_verdict(text: str) -> str | None:
     """Return the first phrase that passes a verdict, if any."""
-    for pattern in VERDICT_PATTERNS:
-        match = pattern.search(text)
-        if match:
-            return match.group(0)
-    return None
+    return _first_statement(VERDICT_PATTERNS, text)
 
 
 def has_referral(text: str) -> bool:
