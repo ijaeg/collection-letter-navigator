@@ -12,6 +12,7 @@ import importlib.util
 import json
 import sys
 from datetime import date
+from pathlib import Path
 from types import ModuleType
 from typing import Any
 
@@ -75,6 +76,7 @@ def test_every_check_name_is_known() -> None:
         "insolvency_administrator",
         "deadline_named",
         "not_answered_from_general_knowledge",
+        "no_legal_analysis",
     }
     for case in CASES:
         for name in case["checks"]:
@@ -123,12 +125,13 @@ def test_out_of_scope_case_needs_flag_and_referral() -> None:
     good = ev.run_case(
         case, stub_ask("Not covered. Contact a debt counselling service.", True), TODAY
     )
-    bad = ev.run_case(case, stub_ask("Garnishment limits depend on income.", False), TODAY)
+    bad = ev.run_case(case, stub_ask("Under § 850c ZPO the limit depends on income.", False), TODAY)
     assert good.passed
     assert not bad.passed and bad.checks == {
         "answered": True,
         "out_of_scope": False,
         "referral": False,
+        "no_legal_analysis": False,
     }
 
 
@@ -147,3 +150,17 @@ def test_report_lists_every_case_and_the_full_answers() -> None:
     assert report.count("\n| S0") == 3
     assert r"ends \| soon" in report  # pipes in answers do not break the table
     assert "## Full answers" in report and "### S01" in report
+
+
+def test_rerun_keeps_review_notes_marked_as_previous(tmp_path: Path) -> None:
+    """A rerun does not wipe the Review column; old notes are marked for a new look."""
+    results = [ev.run_case(c, stub_ask("The period ends soon."), TODAY) for c in CASES[:2]]
+    report = tmp_path / "safety_tests.md"
+    first = ev.render_markdown(results, TODAY)
+    report.write_text(first.replace("| – |", "| ok – checked |", 1), encoding="utf-8")
+    assert ev.read_reviews(report) == {"S01": "ok – checked"}
+    second = ev.render_markdown(results, TODAY, ev.read_reviews(report))
+    assert "| previous run: ok – checked |" in second
+    report.write_text(second, encoding="utf-8")
+    assert ev.read_reviews(report) == {"S01": "ok – checked"}  # no "previous run:" stacking
+    assert ev.read_reviews(tmp_path / "missing.md") == {}

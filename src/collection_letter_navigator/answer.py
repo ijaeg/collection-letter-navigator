@@ -49,10 +49,11 @@ REFERRAL_EN = (
     "consumer advice centre (Verbraucherzentrale); the links are shown below."
 )
 
-#: Answer used when the model flags a question as out of scope without a text of its own.
+#: Answer used when an out-of-scope answer has no usable text of its own (FR-21 AC7, AC9).
 OUT_OF_SCOPE_EN = (
     "This question is outside what this app covers: it explains debt collection letters and "
-    "court payment orders. " + REFERRAL_EN
+    "court payment orders. " + REFERRAL_EN + " If insolvency proceedings are open, your "
+    "insolvency administrator (Insolvenzverwalter) is also the right contact."
 )
 
 #: Message returned to the model for tool calls beyond the limit (FR-10 AC5).
@@ -468,8 +469,10 @@ def ensure_referral(answer_text: str) -> str:
     """Make sure an out-of-scope answer points to free counselling.
 
     The model's own "not found" sentence is replaced by a clear out-of-scope
-    message; any other text gets the referral appended unless it already names
-    counselling or a consumer advice centre.
+    message, and so is an answer that analyses the case anyway: an out-of-scope
+    answer must not cite provisions (safety test S04: the insolvency answer listed
+    §§ 201, 204, 205 BGB). Any other text gets the referral appended unless it
+    already names counselling or a consumer advice centre.
 
     Args:
         answer_text: The English answer of an out-of-scope question.
@@ -480,6 +483,8 @@ def ensure_referral(answer_text: str) -> str:
     Related: FR-21 AC5, FR-21 AC7, FR-21 AC9
     """
     if answer_text.strip().startswith("I could not find this in the knowledge base"):
+        return OUT_OF_SCOPE_EN
+    if "§" in answer_text:  # out of scope means no legal analysis (FR-21 AC9)
         return OUT_OF_SCOPE_EN
     lowered = answer_text.lower()
     if "counsel" in lowered or "verbraucherzentrale" in lowered:
