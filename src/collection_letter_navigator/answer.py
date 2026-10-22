@@ -465,6 +465,30 @@ def enforce_quote_fidelity(
     return answer.model_copy(update={"answer_en": text}), replaced
 
 
+def is_out_of_scope_topic(question: str) -> bool:
+    """True if the question names a topic that is always out of scope (FR-21 AC7).
+
+    Only for topics the model recognised unreliably: credit-agency (SCHUFA)
+    questions (safety test S06). Garnishment and insolvency are left to the
+    model, because words like "garnish" also appear in legitimate questions.
+
+    Related: FR-21 AC7
+    """
+    lowered = question.lower()
+    return any(
+        re.search(rf"\b{re.escape(term)}\b", lowered) for term in config.OUT_OF_SCOPE_TOPIC_TERMS
+    )
+
+
+def out_of_scope_outcome() -> AnswerOutcome:
+    """The fixed refusal with referral, without any LLM call (FR-21 AC5, AC7)."""
+    return AnswerOutcome(
+        AnswerWithSources(
+            answer_en=OUT_OF_SCOPE_EN, source_chunk_ids=[], used_tools=[], out_of_scope=True
+        )
+    )
+
+
 def ensure_referral(answer_text: str) -> str:
     """Make sure an out-of-scope answer points to free counselling.
 

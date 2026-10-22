@@ -300,3 +300,11 @@ def test_fr21_ac9_out_of_scope_answer_with_legal_analysis_becomes_a_plain_referr
     analysed = "This is outside the scope. § 201 BGB says the period begins with the Feststellung."
     assert answer.ensure_referral(analysed) == answer.OUT_OF_SCOPE_EN
     assert "insolvency administrator" in answer.OUT_OF_SCOPE_EN
+
+
+def test_fr21_ac7_out_of_scope_topics_are_matched_as_words() -> None:
+    """SCHUFA and credit-score questions match; a collection agency does not."""
+    assert answer.is_out_of_scope_topic("They reported me to SCHUFA.")
+    assert answer.is_out_of_scope_topic("Will this hurt my credit score?")
+    assert not answer.is_out_of_scope_topic("A collection agency wrote to me.")
+    assert not answer.is_out_of_scope_topic("What is a Mahnbescheid?")

@@ -90,6 +90,12 @@ def ask(
     report = progress or (lambda _label: None)
     question = guards.validate_question(question_en)  # L1: before any LLM call
     guards.assert_no_injection(question)  # L2
+    if answer.is_out_of_scope_topic(question):  # e.g. SCHUFA: fixed refusal, no LLM call
+        return PipelineOutcome(
+            question,
+            RetrievalOutcome(retrieval.passthrough_plan(question)),
+            answer.out_of_scope_outcome(),
+        )
     seconds: dict[str, float] = {}
     plan_usages: list[llm.LlmUsage] = []
 
