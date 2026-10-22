@@ -198,6 +198,34 @@ R1 and R3 (no query translation) are not affected by either change: R1 80 % in a
 - **Batched embeddings are kept** (search median 4.5 s → 0.5 s, no change in results).
 - For the README: answer time median ≈ 15 s, but it depends on the provider; occasional answers above 20 s remain a known limitation.
 
+## D-10 Retrieval evaluation on the test set (Thu 10-22)
+
+Run: `uv run python eval/run_retrieval_eval.py` – 24 test questions (`eval/retrieval_questions.json`, written after the spike gate and never used for tuning), 2 runs, 4 configurations (§7.2); 23 questions scored (T24 is out of scope and has no expected provision). Settings as of Thursday: D-8 pinning on, lay-term list, plan reasoning effort `low` (D-9), batched query embeddings. Output: `eval/retrieval_results.csv`.
+
+| Config | Hit-Rate@5 (run 1 / 2) | MRR@10 | Filter accuracy | s / question |
+|---|---|---|---|---|
+| R1 vector | 87 % (87 / 87) | 0.75 | – | 1.5 |
+| **R2 translation + vector** | **96 % (91 / 100)** | **0.78** | 100 % | 8.2 |
+| R3 hybrid | 83 % (83 / 83) | 0.53 | – | 2.1 |
+| R4 translation + hybrid | 85 % (83 / 87) | 0.70 | 100 % | 8.2 |
+
+### Observations
+
+- **R2 wins clearly;** target ≥ 80 % met. R2 and R4 use the same plan per run, so the 11-point gap is caused by BM25 alone.
+- **BM25 adds noise on this test set.** In R4 it pulls sections that share many words with the queries above the precise one: T02 ("missed the two weeks – can I still object?") finds § 694 ZPO at rank 1–2 in R2 but at rank 9–10 in R4, behind §§ 691, 699, 697, 701; T01 and T10 lose their hit in one run each the same way. In the Mahnverfahren (§§ 688–703d) and the limitation block (§§ 194–218) many neighbouring sections use the same terms, so word overlap says little about relevance. On the 10 development questions R2 and R4 were tied (100 %) – the test set shows the difference.
+- **Query translation pays off:** R2 96 % vs. R1 87 %, at ≈ 6 s for the plan call. Without translation, T18 (§ 204 BGB), T20 (RDG §§ 10, 16) and T22 (§ 699 ZPO) are missed in both runs.
+- **Pinning can mislead:** in T14 ("if I start paying small amounts …", expected § 212 BGB) the plan named "§ 204 BGB" in both runs, so § 204 was pinned to rank 1; § 212 was missed in R4 and in one R2 run. The risk named in D-8 occurred once in 23 questions.
+- **Remaining misses of R2:** T14 (run 1, see above) and T20 (run 1, § 10 RDG at rank 6). Both run-to-run variations of the plan; run 2 hit everything.
+- Filter accuracy 100 % in R2 and R4 (law filter always contained the expected law).
+- T24 (garnishment, out of scope): retrieval returns Mahnverfahren sections, as there is nothing relevant in the knowledge base; the answer layer handles it (FR-21 AC7, safety test S05).
+
+### Decision
+
+- **D-10: default is R2** – query translation on, retrieval mode `vector` (`RETRIEVAL_MODE` default changed from `hybrid` to `vector`). Winner rule of §7.2: highest Hit-Rate@5.
+- Hybrid search (FR-07) stays implemented, tested and switchable (`RETRIEVAL_MODE=hybrid`); its evaluation result is the finding, as §7.2 requires ("reported whatever it is").
+- No tuning after this run: the misses (T14, T20) go into the README as weaknesses, not into the prompt.
+- For the README: 23 questions, 2 runs, one labeler – 96 % means 44 of 46 runs had a hit, not a general accuracy.
+
 ## Open points for the next days
 
 - Sat 10-17: build the index for the BGB and ZPO scope (FR-04) with `qwen/qwen3-embedding-8b`; write the 10 development questions (`eval/dev_questions.json`).
@@ -206,3 +234,4 @@ R1 and R3 (no query translation) are not affected by either change: R1 80 % in a
 - Done: provider options for embeddings (D-3) work – the index was built with them on Fri 10-16. Spike gate passed on Mon 10-19 (see above). E-8 decided on Mon 10-19 (variant A, see above). All spike items are closed; next: spec v0.2.
 - D-8 decided on Tue 10-20 (both changes kept, pinning on by default, see above).
 - D-9 decided on Wed 10-21 (retrieval plan stays `low`); query embeddings batched on Thu 10-22 (see above).
+- D-10 decided on Thu 10-22 (test set: R2 wins with 96 % Hit-Rate@5, default retrieval mode `vector`; see above).
