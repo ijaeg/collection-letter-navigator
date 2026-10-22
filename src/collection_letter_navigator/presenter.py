@@ -22,6 +22,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
 from collection_letter_navigator import config, guards, pricing, retrieval
 from collection_letter_navigator.llm import LlmUsage
+from collection_letter_navigator.retrieval import RetrievalOutcome
 from collection_letter_navigator.schemas import ToolResult, TriageResult
 from collection_letter_navigator.tools import deadlines
 
@@ -232,3 +233,68 @@ def history_messages(turns: Sequence[tuple[str, str]]) -> list[BaseMessage]:
         messages.append(HumanMessage(guards.wrap_untrusted(question, "history")))
         messages.append(AIMessage(answer_text))
     return messages
+
+
+#: Readable names of the retrieval modes in the RAG panel (FR-18 AC1).
+MODE_LABELS = {
+    "vector": "vector search",
+    "bm25": "keyword search (BM25)",
+    "hybrid": "hybrid search",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class RagPanel:
+    """What the RAG process panel shows for one answer (FR-18 AC1).
+
+    Attributes:
+        queries: The German search queries (or the English question without translation).
+        rationale: The plan's one-line reason for queries and filter.
+        filter_label: The applied law filter, e.g. "ZPO", or "none".
+        fallback: True if the filtered search was retried without filter (FR-06 AC3).
+        mode_label: The retrieval mode in plain words.
+        rows: One row per retrieved chunk: rank, provision, chunk ID, fused score.
+
+    Related: FR-18 AC1, FR-06 AC3, FR-07 AC2
+    """
+
+    queries: list[str]
+    rationale: str
+    filter_label: str
+    fallback: bool
+    mode_label: str
+    rows: list[dict[str, object]]
+
+
+def rag_panel(found: RetrievalOutcome) -> RagPanel:
+    """Prepare the RAG process panel of one answer.
+
+    Args:
+        found: The retrieval run of the answer.
+
+    Returns:
+        The panel content; the score is the fused RRF score (higher is better).
+
+    Related: FR-18 AC1
+    """
+    rows: list[dict[str, object]] = []
+    for rank, chunk in enumerate(found.chunks, start=1):
+        meta = chunk.document.metadata
+        subsection = f" ({meta['subsection']})" if meta.get("subsection") else ""
+        rows.append(
+            {
+                "rank": rank,
+                "provision": f"§ {meta.get('section', '?')}{subsection} {meta.get('law', '')}",
+                "title": meta.get("title", ""),
+                "chunk": chunk.chunk_id,
+                "score": round(chunk.score, 4),
+            }
+        )
+    return RagPanel(
+        queries=list(found.plan.queries_de),
+        rationale=found.plan.rationale,
+        filter_label=", ".join(found.applied_filter) if found.applied_filter else "none",
+        fallback=found.filter_fallback,
+        mode_label=MODE_LABELS.get(found.mode, found.mode),
+        rows=rows,
+    )

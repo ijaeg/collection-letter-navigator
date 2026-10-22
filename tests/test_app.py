@@ -15,7 +15,7 @@ from typing import Any
 import pytest
 from streamlit.testing.v1 import AppTest
 
-from collection_letter_navigator import config, guards, llm, pipeline, pricing, retrieval
+from collection_letter_navigator import config, guards, llm, pipeline, presenter, pricing, retrieval
 from collection_letter_navigator.answer import AnswerOutcome
 from collection_letter_navigator.pipeline import PipelineOutcome
 from collection_letter_navigator.retrieval import RetrievalOutcome, ScoredChunk
@@ -206,3 +206,27 @@ def test_fr01_ac4_triage_can_be_changed_later() -> None:
 def test_fr21_ac6_sidebar_shows_knowledge_base_dates() -> None:
     at = run_app()
     assert "German law as of" in "\n".join(str(c.value) for c in at.sidebar.caption)
+
+
+def test_fr18_ac1_answer_has_a_rag_panel(stub_ask: list[Any]) -> None:
+    at = continue_with(run_app(), "court", "mahnbescheid")
+    at.chat_input[0].set_value("Until when can I object?").run()
+    assert any(e.label == "How this answer was found" for e in at.expander)
+    assert "Mahnbescheid" in texts(at)  # the German query
+    assert at.table  # the ranked chunks
+
+
+def test_fr24_ac2_how_it_works_is_linked_from_triage_and_footer() -> None:
+    at = run_app()
+    links = [element for element in at.main if element.type == "page_link"]
+    assert len(links) == 2
+
+
+def test_fr24_ac1_how_it_works_page_explains_the_app() -> None:
+    page = AppTest.from_file(str(config.PROJECT_ROOT / "pages" / "how_it_works.py"))
+    page.run()
+    assert not page.exception
+    headers = [h.value for h in page.header]
+    assert "What the app does not do" in headers and "Known limitations" in headers
+    snapshot, _ = presenter.knowledge_base_dates()
+    assert snapshot in "\n".join(str(m.value) for m in page.markdown)

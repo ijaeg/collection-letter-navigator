@@ -13,7 +13,8 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from collection_letter_navigator import config, demo, presenter, retrieval
 from collection_letter_navigator.llm import LlmUsage
-from collection_letter_navigator.schemas import TriageResult
+from collection_letter_navigator.retrieval import RetrievalOutcome, ScoredChunk
+from collection_letter_navigator.schemas import RetrievalPlan, TriageResult
 from collection_letter_navigator.tools import limitation
 
 DELIVERED = date(2026, 10, 14)
@@ -124,3 +125,34 @@ def test_fr03_demo_court_deadline_lies_ahead() -> None:
     today = date(2026, 10, 22)
     card = presenter.deadline_card(case.triage(today))
     assert card is not None and card.period_end > today
+
+
+def test_fr18_ac1_rag_panel_shows_queries_filter_mode_and_ranked_chunks() -> None:
+    """The panel lists the plan, the applied filter, the mode and the chunks with scores."""
+    plan = RetrievalPlan(
+        queries_de=["Widerspruch Mahnbescheid Frist"], law_filter=["ZPO"], rationale="Deadline."
+    )
+    chunks = []
+    for chunk_id, score in (("ZPO-692", 0.0331), ("RDG-13a-1", 0.0164)):
+        doc = retrieval.get_chunk_by_id(chunk_id)
+        assert doc is not None
+        chunks.append(ScoredChunk(chunk_id, doc, score))
+    found = RetrievalOutcome(plan, chunks, "vector", ["ZPO"], filter_fallback=False)
+    panel = presenter.rag_panel(found)
+    assert panel.queries == ["Widerspruch Mahnbescheid Frist"]
+    assert (panel.filter_label, panel.fallback, panel.mode_label) == ("ZPO", False, "vector search")
+    assert panel.rows[0] == {
+        "rank": 1,
+        "provision": "§ 692 ZPO",
+        "title": "Mahnbescheid",
+        "chunk": "ZPO-692",
+        "score": 0.0331,
+    }
+    assert panel.rows[1]["provision"] == "§ 13a (1) RDG"
+
+
+def test_fr18_ac1_fallback_and_missing_filter_are_named() -> None:
+    """Without a filter the panel says "none"; the fallback flag is passed on (FR-06 AC3)."""
+    plan = RetrievalPlan(queries_de=["Verjährung"], rationale="x")
+    panel = presenter.rag_panel(RetrievalOutcome(plan, [], "hybrid", None, filter_fallback=True))
+    assert (panel.filter_label, panel.fallback, panel.mode_label) == ("none", True, "hybrid search")

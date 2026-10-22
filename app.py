@@ -39,7 +39,11 @@ TOOL_TITLES = {
     "calculate_objection_deadline": "Deadline calculation",
     "check_limitation": "Limitation check",
     "calculate_default_interest": "Default interest calculation",
+    "fetch_paragraph": "Provision looked up",
 }
+
+#: The explanation page (FR-24), linked from the triage and the footer.
+HOW_IT_WORKS_PAGE = "pages/how_it_works.py"
 
 
 def md(text: str) -> str:
@@ -84,6 +88,7 @@ def render_triage() -> None:
     Related: FR-01
     """
     st.subheader("1. About your letter")
+    st.page_link(HOW_IT_WORKS_PAGE, label="New here? How this app works", icon="ℹ️")
     previous: TriageResult | None = st.session_state.get(TRIAGE_KEY)
     senders = list(config.SENDER_LABELS)
     sender = st.radio(
@@ -190,6 +195,7 @@ def render_tool_card(result: ToolResult) -> None:
                 "\n".join(
                     f"- {key.replace('_', ' ')}: **{md(display_value(value))}**"
                     for key, value in result.result.items()
+                    if key != "text"  # long statute text: shown under "Legal basis" instead
                 )
             )
         if result.not_applicable_reason:
@@ -227,7 +233,22 @@ def render_answer(out: PipelineOutcome) -> None:
         render_tool_card(result)
     if answer.out_of_scope or not answer.source_chunk_ids:
         st.caption(help_links())
+    render_rag_panel(out)
     st.caption(f"Answered in {sum(out.seconds.values()):.1f} s")
+
+
+def render_rag_panel(out: PipelineOutcome) -> None:
+    """How the answer was found: queries, filter, mode and the top chunks (FR-18 AC1)."""
+    panel = presenter.rag_panel(out.retrieval)
+    with st.expander("How this answer was found"):
+        st.markdown("**German search queries**\n" + "\n".join(f"- {md(q)}" for q in panel.queries))
+        fallback = " (no hits with the filter, searched without it)" if panel.fallback else ""
+        steps = ", ".join(f"{name} {seconds:.1f} s" for name, seconds in out.seconds.items())
+        st.caption(
+            f"Law filter: {panel.filter_label}{fallback} · {panel.mode_label} · time: {steps}"
+        )
+        st.caption(f"Why: {md(panel.rationale)}")
+        st.table(panel.rows)
 
 
 def render_message(message: dict[str, Any]) -> None:
@@ -364,6 +385,7 @@ def render_footer() -> None:
     st.divider()
     st.caption(config.DISCLAIMER_EN)
     st.caption(help_links())
+    st.page_link(HOW_IT_WORKS_PAGE, label="How this app works", icon="ℹ️")
 
 
 def main() -> None:
