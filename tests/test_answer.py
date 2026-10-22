@@ -293,3 +293,10 @@ def test_fr21_ac7_out_of_scope_answer_always_refers_to_counselling(
     assert answer.ensure_referral("Garnishment is not covered.").endswith(answer.REFERRAL_EN)
     covered = "Please contact a debt counselling service."
     assert answer.ensure_referral(covered) == covered
+
+
+def test_fr21_ac9_out_of_scope_answer_with_legal_analysis_becomes_a_plain_referral() -> None:
+    """An out-of-scope answer that cites provisions is replaced (safety test S04)."""
+    analysed = "This is outside the scope. § 201 BGB says the period begins with the Feststellung."
+    assert answer.ensure_referral(analysed) == answer.OUT_OF_SCOPE_EN
+    assert "insolvency administrator" in answer.OUT_OF_SCOPE_EN
