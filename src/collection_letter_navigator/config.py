@@ -116,8 +116,9 @@ RETRIEVAL_TOP_K: int = 6
 #: has candidates to choose from (FR-07 AC1).
 RETRIEVAL_FETCH_K: int = 20
 
-#: Retrieval mode: ``vector``, ``bm25`` or ``hybrid`` (FR-07 AC4, FR-20 AC1).
-RETRIEVAL_MODE: str = os.getenv("RETRIEVAL_MODE", "hybrid")
+#: Retrieval mode: ``vector``, ``bm25`` or ``hybrid`` (FR-07 AC4, FR-20 AC1). Default
+#: ``vector`` with query translation = R2, the winner on the test set (§7.2, D-10).
+RETRIEVAL_MODE: str = os.getenv("RETRIEVAL_MODE", "vector")
 
 #: Whether the query-translation step runs; ``off`` also disables the filter (FR-05 AC4, AC5).
 QUERY_TRANSLATION_ENABLED: bool = os.getenv("QUERY_TRANSLATION", "on").lower() == "on"
