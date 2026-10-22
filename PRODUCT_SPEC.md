@@ -4,7 +4,7 @@
 |---|---|
 | **Project** | Turing College – AI Engineering, Sprint 2 project ("Building Applications with AI") |
 | **Author** | Ingo Jäger |
-| **Status** | Draft v0.2.2 – 2026-10-21 (changes: see §13) |
+| **Status** | Draft v0.2.3 – 2026-10-22 (changes: see §13) |
 | **Audience** | Developer (implementation guide) and Turing College tutor (review guide) |
 | **Stack** | Python 3.13 (uv), Streamlit, LangChain against the OpenRouter API (OpenAI-compatible, chat and embeddings), Chroma, BM25 (`rank-bm25`), Pydantic |
 | **Time budget** | Estimated effort ≈ 50–60 hours plus learning time; available ≈ 100 hours from Fri 2026-10-16 to Wed 2026-10-28 (8–9 h on weekdays, max. 6 h on weekend days), including tests, evaluation, documentation and review preparation (see §11) |
@@ -255,7 +255,7 @@ An optional panel in `CHAT`: the user pastes the German text of the letter.
 ### 4.5 User interface and developer settings
 
 #### FR-17 Sources, tool cards and progress (Must)
-- AC1: Below each answer: a collapsible "Legal basis" list (FR-08 AC2) and one **tool card** per tool call showing inputs, result, assumptions and missing information (*optional task Medium 6*).
+- AC1: Below each answer: a collapsible "Legal basis" list (FR-08 AC2) and one **tool card** per tool call showing inputs, result, assumptions and missing information (*optional task Medium 6*). Each tool card has its own collapsible "Legal basis of this calculation" with the provisions from `ToolResult.legal_basis` and their German text, looked up by chunk ID (R-12), so a tool answer shows its legal basis even when those provisions were not retrieved.
 - AC2: Every LLM call and the retrieval run inside `st.status` or `st.spinner` with step labels ("Translating your question…", "Searching German law…", "Calculating deadline…").
 - AC3: A permanent footer shows the disclaimer and the get-help links (FR-21).
 
@@ -263,8 +263,8 @@ An optional panel in `CHAT`: the user pastes the German text of the letter.
 - AC1: A collapsible panel per answer shows: German queries, applied filter (and fallback, FR-06 AC3), retrieval mode, and the top *k* chunks with law, section and fused score.
 
 #### FR-19 Token usage and cost (Must) – *optional task Medium 5*
-- AC1: After each LLM call, prompt tokens, completion tokens (including reasoning tokens) and cost in USD are added to a session total in the sidebar; embedding calls are counted if they go through a paid API.
-- AC2: Prices come from the OpenRouter models endpoint, fetched once per session and cached; if unavailable, the app shows "cost unavailable" and keeps working.
+- AC1: After each LLM call – retrieval plan and answer calls – prompt tokens, completion tokens (including reasoning tokens) and cost in USD are added to a session total in the sidebar; embedding calls are counted if they go through a paid API. The plan call reports its usage via `with_structured_output(..., include_raw=True)`.
+- AC2: If OpenRouter reports the cost of a call, that cost is used; otherwise the tokens are priced with the OpenRouter models endpoint, fetched once per session and cached (in the smoke test of 2026-10-21 no cost was reported for the answer calls). If prices are unavailable, the app shows "cost unavailable" and keeps working; a failed fetch is not cached.
 - AC3: Implementation adapted from Sprint 1 (`pricing.py`).
 
 #### FR-20 Developer settings (Should) – *optional task Medium 1, conditional*
@@ -336,7 +336,8 @@ The answer call demonstrates the full tool-calling cycle: the model emits a tool
 
 ```text
 question ─► guards (L1, L2) ─► retrieval plan (LLM, JSON)
-        ─► for each German query: vector + BM25 (filtered) ─► fusion, top k
+        ─► all German queries embedded in one request; per query: vector + BM25 (filtered)
+        ─► fusion, top k
         ─► answer call with tools bound (≤ 3 tool calls) ─► AnswerWithSources
         ─► checks: chunk IDs (FR-09 AC1), no-sources rule (FR-08 AC3, AC7), quote fidelity (FR-09 AC2),
            deadline reminder (FR-21 AC2) or referral (FR-21 AC7)
@@ -489,9 +490,9 @@ Provisional default: **R4** (tie on Hit-Rate@5, ahead on MRR@10). Findings: the 
 | NFR-01 Setup | The app starts with **one API key** and two commands | `uv sync` and `uv run streamlit run app.py` work on a fresh clone with `OPENROUTER_API_KEY` set; chat **and embeddings** run via OpenRouter; the index is committed (FR-04 AC4); no other account or local model required. The key must allow the embedding model `qwen/qwen3-embedding-8b`: keys with workspace guardrails (such as the course key) can block models, which the README states together with the fallback `openai/text-embedding-3-small` (requires rebuilding the index, FR-04 AC6). The `.env` file is loaded before `config.py` reads environment variables, so settings in `.env` take effect |
 | NFR-02 Error handling | No stack trace ever reaches the UI | OpenRouter errors, timeouts (60 s), HTTP 429/5xx (retry with exponential backoff, max. 2 retries), invalid JSON (one retry) and tool failures show a friendly message; failures are never cached |
 | NFR-03 Reasoning token budget | Reasoning tokens count against `max_tokens` | Default `max_tokens` 4,000; `finish_reason = "length"` with empty content shows a specific message (as in Sprint 1) |
-| NFR-04 Responsiveness | The user always sees progress, and the UI never hangs | Step labels per FR-17 AC2 during every LLM, embedding or tool call; a timeout or error ends the progress indicator with a message and leaves the chat usable (tested with a mocked timeout); a typical question is answered within 20 s (measured in §7.2, reported); budget from the spike: retrieval plan ≈ 7 s, answer call with one tool ≈ 5–8 s. Smoke test 2026-10-21: median ≈ 16 s, but 4 of 11 runs above 20 s (retrieval plan up to 20.6 s, one short answer call 12.5 s); see R-11 |
+| NFR-04 Responsiveness | The user always sees progress, and the UI never hangs | Step labels per FR-17 AC2 during every LLM, embedding or tool call; a timeout or error ends the progress indicator with a message and leaves the chat usable (tested with a mocked timeout); a typical question is answered within 20 s (measured in §7.2, reported); budget from the spike: retrieval plan ≈ 7 s, answer call with one tool ≈ 5–8 s. Smoke test 2026-10-21: median ≈ 16 s, but 4 of 11 runs above 20 s. Measured on the 10 development questions with `scripts/measure_latency.py` (one run each): 2026-10-21 median 28.2 s, 8 of 10 above 20 s; 2026-10-22 after batching the query embeddings median 14.6 s, 1 of 10 above 20 s (search 4.5 s → 0.5 s); see R-11 and D-9 |
 | NFR-05 Code structure | UI, LLM client, retrieval, tools, guards, prompts and evaluation are separate modules | See §9; `app.py` contains no prompt text and no retrieval logic |
-| NFR-06 Tests | Deterministic logic and LLM-related logic are tested | Tests for: tools (reference cases), tool contract and invalid arguments, retrieval filter, chunking and ingestion idempotence, quote check, redaction, guards, the tool-calling loop and the pipeline with a **mocked LLM client**; `uv run pytest` passes |
+| NFR-06 Tests | Deterministic logic and LLM-related logic are tested | Tests for: tools (reference cases), tool contract and invalid arguments, retrieval filter, chunking and ingestion idempotence, quote check, redaction, guards, the tool-calling loop and the pipeline with a **mocked LLM client**; UI flows of `app.py` with Streamlit's headless `AppTest` and a stubbed pipeline (no API call); `uv run pytest` passes |
 | NFR-07 Tooling and CI | Quality checks run on every PR | `ruff` (lint + format) and a type checker configured in `pyproject.toml`; `pytest` with coverage report; a GitHub Actions workflow runs ruff and pytest on every pull request – set up on day 1 |
 | NFR-08 Documentation | A reviewer understands the project from the README alone | README contains the sections listed in §10.2 |
 | NFR-09 Language | UI and documentation in English | No German UI strings except quoted legal text and German terms with English explanation |
@@ -514,6 +515,8 @@ collection-letter-navigator/
 │   ├── retrieval.py                        # retrieval plan, Chroma + BM25, filter, fusion
 │   ├── answer.py                           # answer call, tool-calling loop, checks (FR-09, FR-21 AC2, AC7)
 │   ├── pipeline.py                         # ask(): guards → plan → retrieval → answer, timings (§5.2)
+│   ├── presenter.py                        # what the UI shows, without Streamlit: deadline card, tool legal basis, usage totals
+│   ├── demo.py                             # FR-03: demo cases with example questions
 │   ├── tools/
 │   │   ├── contract.py                     # ToolResult helpers
 │   │   ├── deadlines.py                    # FR-11
@@ -528,7 +531,8 @@ collection-letter-navigator/
 │   └── letter_extraction.md
 ├── scripts/
 │   ├── build_index.py
-│   └── ask.py                              # one question from the terminal (smoke test)
+│   ├── ask.py                              # one question from the terminal (smoke test)
+│   └── measure_latency.py                  # seconds per step on the development questions (NFR-04, R-11)
 ├── spikes/                                 # spike scripts (D-1, D-3, D-7, E-8) and NOTES.md; kept as a record
 ├── data/
 │   ├── kb_scope.yaml                       # provisions to index
@@ -609,7 +613,7 @@ The target "at least 2 medium and 1 hard" is met by **Must** requirements alone 
 
 ---
 
-## 11. Plan (as of 2026-10-21)
+## 11. Plan (as of 2026-10-22)
 
 **Capacity:** 8–9 h on weekdays, max. 6 h on Saturdays and Sundays. **Milestones:** spike gate passed on **Mon 2026-10-19**; spec v0.2 on Mon 2026-10-19; feature freeze on **Sun 2026-10-25** (evening); *Submit Project* and review booking on **Wed 2026-10-28**; hard deadline **Mon 2026-11-02**.
 
@@ -620,7 +624,7 @@ The target "at least 2 medium and 1 hard" is met by **Must** requirements alone 
 | Mon 10-19 ✓ | FR-05, FR-06, **FR-07** (moved forward from Tuesday) with tests; retrieval evaluation script (§7.2); spike gate on the development questions; spike E-8; spec v0.2; test set `eval/retrieval_questions.json` (written after the gate, not used for tuning) | Gate passed (85 %); E-8 decided; spec v0.2 and test set committed |
 | Tue 10-20 ✓ | Tool contract; FR-11, FR-12, FR-13 with reference tests and tool briefs (`docs/tools/`); `base_rates.csv` (D-5); D-8 tuning on the development questions; **FR-09** (moved forward from Wednesday) | Done: all tool tests pass; D-8 decided |
 | Wed 10-21 ✓ | FR-08, FR-10: answer call in one call with fallback (FR-10 AC8), `prompts/answer.md` with the E-8 findings, tool-calling loop using the checks of FR-09, mocked pipeline tests; **FR-22** guards L1, L2, L4 (moved forward from Thursday); retry and debug log (NFR-02, FR-23 AC2); `pipeline.py`, `scripts/ask.py`; smoke test with 8 questions and fixes | Done: a question with tool use runs end to end in tests and against the API; 180 tests pass |
-| Thu 10-22 | UI: FR-01, FR-02, FR-03, FR-17, FR-19; FR-21, FR-23; log usage of the retrieval-plan call and measure 10 questions (R-11) | All *Must* FRs demonstrable in the browser |
+| Thu 10-22 ✓ | UI: FR-01, FR-02, FR-03, FR-17, FR-19; FR-21, FR-23; log usage of the retrieval-plan call and measure 10 questions (R-11); D-9; batched query embeddings; R-12 | Done: all *Must* FRs of the UI demonstrable in the browser (checklist passed); 213 tests pass, 14 of them UI tests |
 | Fri 10-23 | Retrieval evaluation on the test set (§7.2), winner as default; safety tests (FR-21 AC8) | `retrieval_results.csv` complete |
 | Sat 10-24 (6 h) | Letter Check (FR-16, Should); FR-18 RAG panel | Demo letter produces a checklist |
 | Sun 10-25 (6 h) | Tool-calling evaluation (§7.3); FR-24; FR-14; **feature freeze** in the evening | All *Should* items done or dropped |
@@ -648,6 +652,7 @@ The schedule includes the agreed way of working for every new AI concept (concep
 | D-6 | Public holidays | Nationwide holidays by default; federal state as optional input (FR-11 AC2). Holidays at the court's location are what legally matters – stated in `assumptions`. |
 | D-7 | LangChain API | **Decided (2026-10-16/19):** structured output via `with_structured_output(..., method="json_schema")`; tool calling via `bind_tools` and a `ToolMessage` loop; both in **one** call via `bind_tools(..., response_format=..., strict=True)` (spike E-8, FR-10 AC8); BM25 directly with `rank-bm25` (FR-07 AC1). |
 | D-8 | Retrieval tuning | **Decided (2026-10-20):** both ideas kept – (1) up to two provisions named explicitly in the queries are moved to the top of the fused list, inside the law filter (`PIN_EXPLICIT_REFERENCES`, default on); (2) a lay term → statutory term list in `prompts/retrieval_plan.md`. On the development questions R2/R4 rose from 85 % to 100 % Hit-Rate@5 without new misses (`eval/dev_results_d8_*.csv`, `spikes/NOTES.md`). Risk: pinning relies on the model naming correct section numbers; limited to two and to the filter; stated in the README. |
+| D-9 | Reasoning effort of the retrieval plan | **Decided (2026-10-21):** stays `low`. With `minimal` (`PLAN_REASONING_EFFORT`) the plan took 1.9 s instead of 6.2 s, but on the development questions R4 fell from 100 % to 90 % Hit-Rate@5: D01 (objection period) left the top 5 in both runs, and R2 MRR@10 fell from 0.80 to 0.72 (`eval/dev_results_plan_minimal.csv`). With `minimal` the model names section numbers less often, so pinning (D-8) applies less often. Rule of D-8: no new misses. The setting stays configurable. |
 | R-1 | Wrong legal statement with a source | Tool contract, quote check, "no result instead of a wrong result", ground-truth cross-check, safety tests |
 | R-2 | Line between information and advice (RDG) | No recommendations; tools give provisional, input-based checks with assumptions; referral to counselling services |
 | R-3 | Old claims under old law | Out of scope; tools refuse dates outside their supported period; interest uses historical base rates |
@@ -658,12 +663,21 @@ The schedule includes the agreed way of working for every new AI concept (concep
 | R-8 | Scope larger than time | Dated plan, cut rule and order, early feature freeze |
 | R-9 | Model availability with the reviewer's key | Course keys with guardrails can block models (found in D-1); README names the required models and the fallback; models are switchable via environment variables |
 | R-10 | Committed index changes on use | Chroma writes to its files even when reading; mitigated by a working copy (FR-04 AC7) |
-| R-11 | Answer time above 20 s (NFR-04) | Smoke test 2026-10-21: median ≈ 16 s, outliers up to 36 s, mostly in the retrieval-plan call and varying between runs of similar size, so likely provider latency. The plan call does not log token usage yet, so the cause is open. Next: log it, measure 10 questions, then decide between reasoning effort `minimal` for the plan, a shorter timeout, or both. The progress labels (FR-17 AC2) keep the UI responsive meanwhile |
-| R-12 | Empty "Legal basis" for tool answers | Smoke test 2026-10-21 (limitation with part payment): the answer relied on `check_limitation` alone, and §§ 195, 199, 212 BGB were not among the retrieved chunks, so the panel stayed empty. Idea for Thursday: the tool card (FR-17 AC1) shows the provisions from `ToolResult.legal_basis`, with the German text looked up by chunk ID where it is in the knowledge base |
+| R-11 | Answer time above 20 s (NFR-04) | **Mitigated (2026-10-22).** Measurement on the development questions (`eval/latency_*.csv`): the search sent one embedding request per German query, one after the other (median 4.5 s, outliers 14 s and 45 s). All queries of a plan are now embedded in one request, with the same vectors and hits (test); search median 0.5 s. A cheaper plan (`minimal`) was rejected (D-9). Remaining time is in the two LLM calls and varies with the provider: median 14.6 s, 1 of 10 questions above 20 s. Stated as a known limitation in the README; the progress labels (FR-17 AC2) keep the UI responsive |
+| R-12 | Empty "Legal basis" for tool answers | **Resolved (2026-10-22):** the tool card shows the provisions from `ToolResult.legal_basis` with their German text (FR-17 AC1, `presenter.legal_basis_of`) |
 
 ---
 
 ## 13. Change log
+
+**v0.2.3 (2026-10-22)** – results of Thursday (user interface):
+
+- **UI built:** triage with deadline card (FR-01), chat with progress, legal basis and tool cards (FR-02, FR-17), demo cases and common situations (FR-03), sidebar with usage, cost and knowledge-base dates (FR-19, FR-21 AC6); browser checklist passed.
+- **FR-17 AC1, R-12:** tool cards show the tool's own legal basis with the German text.
+- **FR-19 AC1, AC2:** the retrieval-plan call is counted; reported cost first, otherwise tokens × price from the models endpoint.
+- **D-9 decided:** retrieval plan stays at reasoning effort `low` (`minimal` lost D01 in R4).
+- **R-11, NFR-04, §5.2:** query embeddings batched into one request; measured answer times on the development questions.
+- **NFR-06:** UI tests with Streamlit `AppTest`. **§9:** `presenter.py`, `demo.py`, `scripts/measure_latency.py`. **§11:** Thursday done.
 
 **v0.2.2 (2026-10-21)** – results of Wednesday (answer chain and smoke test):
 

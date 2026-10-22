@@ -105,3 +105,22 @@ def test_fr23_ac2_debug_log_records_every_step_when_enabled(
     ]
     assert records[2]["result"]["result"]["period_end"] == "2026-12-31"
     assert records[1]["usage"]["model"] == config.CHAT_MODEL
+
+
+def test_r11_plan_call_usage_is_counted_and_logged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The plan call's tokens reach the outcome and the debug log (FR-19 AC1, R-11)."""
+    monkeypatch.setattr(config, "DEBUG_LOG_ENABLED", True)
+    monkeypatch.setattr(config, "LOG_DIR", tmp_path)
+    monkeypatch.setattr(config, "DEBUG_LOG_PATH", tmp_path / "llm_calls.jsonl")
+    plan = RetrievalPlan(queries_de=["Mahnbescheid"], law_filter=["ZPO"], rationale="Test.")
+    model = FakeChatModel(
+        [final_answer("A Mahnbescheid is a court payment order.", ["ZPO-692"])],
+        structured={RetrievalPlan: [plan]},
+    )
+    out = pipeline.ask("What is a Mahnbescheid?", mode="bm25", model=model)
+    assert [u.prompt_tokens for u in out.usages] == [700, 900]
+    first = json.loads((tmp_path / "llm_calls.jsonl").read_text().splitlines()[0])
+    assert first["label"] == "retrieval_plan"
+    assert first["usage"]["completion_tokens"] == 80

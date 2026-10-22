@@ -17,6 +17,7 @@ import pytest
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_core.embeddings import DeterministicFakeEmbedding
+from langchain_core.messages import AIMessage
 
 from collection_letter_navigator import config, llm, retrieval
 from collection_letter_navigator.retrieval import ScoredChunk
@@ -89,6 +90,24 @@ def test_fr05_ac1_invalid_plan_twice_raises_llm_call_error() -> None:
         retrieval.create_retrieval_plan("How long?", model=model)  # type: ignore[arg-type]
 
 
+def test_r11_unparsable_raw_reply_is_retried_and_usage_recorded() -> None:
+    """With ``include_raw``, a failed parse is retried; each call's usage is kept (R-11)."""
+    raw = AIMessage(
+        content="{}",
+        usage_metadata={"input_tokens": 500, "output_tokens": 40, "total_tokens": 540},
+    )
+    model = FakeChatModel(
+        [
+            {"raw": raw, "parsed": None, "parsing_error": ValueError("bad json")},
+            {"raw": raw, "parsed": plan_dict(["Mahnbescheid"]), "parsing_error": None},
+        ]
+    )
+    usages: list[llm.LlmUsage] = []
+    plan = retrieval.create_retrieval_plan("What is it?", model=model, usages=usages)  # type: ignore[arg-type]
+    assert plan.queries_de == ["Mahnbescheid"]
+    assert [u.prompt_tokens for u in usages] == [500, 500]
+
+
 def test_fr05_provider_error_becomes_llm_call_error() -> None:
     """A failing call never raises a raw exception to the caller (NFR-02)."""
     model = FakeChatModel([TimeoutError("read timed out")])
@@ -157,14 +176,56 @@ def test_fr06_ac2_no_chunk_outside_the_filter_is_returned(
         assert {hit.document.metadata["law"] for hit in vector + keyword} <= set(law_filter)
 
 
+class CountingEmbedding(DeterministicFakeEmbedding):
+    """Fake embeddings that count the requests (one batch vs. one per query)."""
+
+    batch_calls: int = 0
+    single_calls: int = 0
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        self.batch_calls += 1
+        return super().embed_documents(texts)
+
+    def embed_query(self, text: str) -> list[float]:
+        self.single_calls += 1
+        return super().embed_query(text)
+
+
+def test_r11_all_queries_are_embedded_in_one_request(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    """Three queries cost one embedding request, with the same hits as before (R-11)."""
+    inner = CountingEmbedding(size=32)
+    corpus = list(retrieval.load_corpus())
+    store = Chroma(
+        collection_name="batch_test",
+        embedding_function=llm.PrefixedEmbeddings(inner),
+        persist_directory=str(tmp_path),
+    )
+    store.add_documents(corpus, ids=[doc.id or "" for doc in corpus])
+    monkeypatch.setattr(retrieval, "load_vector_store", lambda: store)
+    queries = ["Widerspruch Mahnbescheid Frist", "Verjährung Beginn", "Verzugszinsen Höhe"]
+    one_by_one = [retrieval.vector_search(q, k=20) for q in queries]
+
+    inner.batch_calls = inner.single_calls = 0
+    plan = RetrievalPlan(queries_de=queries, rationale="x")
+    outcome = retrieval.retrieve(plan, mode="vector", k=6)
+    assert (inner.batch_calls, inner.single_calls) == (1, 0)
+    expected = retrieval.reciprocal_rank_fusion(one_by_one, k=6)
+    assert [c.chunk_id for c in outcome.chunks] == [c.chunk_id for c in expected]
+
+
 def test_fr06_ac3_fallback_to_unfiltered_search_below_two_hits(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A filtered search with fewer than 2 hits is retried unfiltered."""
 
-    def fake_search(query: str, *, law_filter: Any = None, k: Any = None) -> list[ScoredChunk]:
+    def fake_search(
+        query: str, *, law_filter: Any = None, k: Any = None, **_: Any
+    ) -> list[ScoredChunk]:
         return [] if law_filter else [chunk("BGB-195"), chunk("BGB-199")]
 
+    monkeypatch.setattr(retrieval, "embed_queries", lambda queries: [[0.0]] * len(queries))
     monkeypatch.setattr(retrieval, "vector_search", fake_search)
     monkeypatch.setattr(retrieval, "keyword_search", fake_search)
     plan = RetrievalPlan(queries_de=["Verjährung"], law_filter=["RDG"], rationale="x")

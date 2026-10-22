@@ -122,6 +122,14 @@ class PrefixedEmbeddings(Embeddings):
         """Embed one search query (FR-04 AC6)."""
         return self._inner.embed_query(apply_embedding_prefix(text, "query"))
 
+    def embed_queries(self, texts: list[str]) -> list[list[float]]:
+        """Embed several search queries in one request (R-11, NFR-04).
+
+        Uses the batch endpoint, so three queries cost one round trip instead
+        of three; the vectors are the same as from :meth:`embed_query`.
+        """
+        return self._inner.embed_documents([apply_embedding_prefix(t, "query") for t in texts])
+
 
 def build_chat_model(
     model: str | None = None,

@@ -23,7 +23,7 @@ from typing import Any, Literal, cast, get_args
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import ValidationError
 from rank_bm25 import BM25Okapi
 
@@ -139,6 +139,7 @@ def create_retrieval_plan(
     triage: TriageResult | None = None,
     *,
     model: BaseChatModel | None = None,
+    usages: list[llm.LlmUsage] | None = None,
 ) -> RetrievalPlan:
     """Translate the English question into German queries and a law filter.
 
@@ -149,7 +150,9 @@ def create_retrieval_plan(
     Args:
         question_en: The user's question in English.
         triage: Triage answers used as context, if available.
-        model: Chat model to use; defaults to the configured model.
+        model: Chat model to use; defaults to the configured model with
+            :data:`config.PLAN_REASONING_EFFORT`.
+        usages: If given, the token usage of the call is appended (FR-19 AC1, R-11).
 
     Returns:
         The validated plan with 1–4 German queries and an optional law filter.
@@ -157,11 +160,12 @@ def create_retrieval_plan(
     Raises:
         LlmCallError: If the call fails or the output never validates.
 
-    Related: FR-05 AC1, FR-05 AC2, FR-06 AC1, FR-22
+    Related: FR-05 AC1, FR-05 AC2, FR-06 AC1, FR-19 AC1, FR-22, R-11
     """
-    chat = model or llm.build_chat_model()
-    # AI: structured output - LangChain sends the Pydantic schema and parses the reply back.
-    planner = chat.with_structured_output(RetrievalPlan, method="json_schema")
+    chat = model or llm.build_chat_model(reasoning_effort=config.PLAN_REASONING_EFFORT)
+    # AI: structured output - LangChain sends the Pydantic schema and parses the reply back;
+    # include_raw also returns the raw reply, which carries the token usage (R-11).
+    planner = chat.with_structured_output(RetrievalPlan, method="json_schema", include_raw=True)
     messages = [
         SystemMessage(llm.load_prompt("retrieval_plan")),
         HumanMessage(
@@ -176,7 +180,10 @@ def create_retrieval_plan(
             # AI: the query-translation call, with retries on rate limits and timeouts
             started = time.perf_counter()
             reply = llm.call_with_retry(lambda: planner.invoke(messages))
-            plan = RetrievalPlan.model_validate(reply)
+            parsed, usage = _split_structured_reply(reply)
+            if usage is not None and usages is not None:
+                usages.append(usage)
+            plan = RetrievalPlan.model_validate(parsed)
             normalised = _normalise_plan(plan, triage)
             llm.log_call(
                 "retrieval_plan",
@@ -184,6 +191,7 @@ def create_retrieval_plan(
                     "seconds": round(time.perf_counter() - started, 2),
                     "question": question_en,
                     "plan": normalised.model_dump(),
+                    "usage": llm.usage_as_dict(usage) if usage else None,
                 },
             )
             return normalised
@@ -196,6 +204,25 @@ def create_retrieval_plan(
                 f"The search plan could not be created: {llm.friendly_error_message(error)}"
             ) from error
     raise llm.LlmCallError(f"The search plan was invalid: {last_error}")
+
+
+def _split_structured_reply(reply: Any) -> tuple[Any, llm.LlmUsage | None]:
+    """Separate the parsed plan from the raw reply of an ``include_raw`` call.
+
+    Args:
+        reply: Either ``{"raw": AIMessage, "parsed": ..., "parsing_error": ...}``
+            or, from simple fakes, the parsed value itself.
+
+    Returns:
+        The parsed value (None if parsing failed) and the usage of the raw reply.
+
+    Related: FR-19 AC1, R-11
+    """
+    if isinstance(reply, dict) and {"raw", "parsed"} <= reply.keys():
+        raw = reply["raw"]
+        usage = llm.extract_usage(raw, config.CHAT_MODEL) if isinstance(raw, AIMessage) else None
+        return reply["parsed"], usage
+    return reply, None
 
 
 def passthrough_plan(question_en: str) -> RetrievalPlan:
@@ -369,11 +396,30 @@ def _chunk_id(doc: Document) -> str:
     return str(doc.metadata.get("chunk_id") or doc.id)
 
 
+def embed_queries(queries: Sequence[str]) -> list[list[float]]:
+    """Embed all German queries of one plan in a single request (R-11, NFR-04).
+
+    Args:
+        queries: The German search queries.
+
+    Returns:
+        One vector per query, in the same order.
+
+    Related: FR-04 AC6, FR-07 AC1, NFR-04, R-11
+    """
+    embeddings = load_vector_store().embeddings
+    if isinstance(embeddings, llm.PrefixedEmbeddings):
+        return embeddings.embed_queries(list(queries))  # AI: one embedding call for all queries
+    assert embeddings is not None, "the vector store has no embedding function"
+    return [embeddings.embed_query(query) for query in queries]
+
+
 def vector_search(
     query_de: str,
     *,
     law_filter: Sequence[LawCode] | None = None,
     k: int | None = None,
+    embedding: list[float] | None = None,
 ) -> list[ScoredChunk]:
     """Run one German query against the vector store.
 
@@ -382,6 +428,8 @@ def vector_search(
             :func:`llm.apply_embedding_prefix`.
         law_filter: Laws the search is restricted to, or None.
         k: Number of hits; defaults to :data:`config.RETRIEVAL_TOP_K`.
+        embedding: The query's vector, if already computed by
+            :func:`embed_queries`; otherwise the query is embedded here.
 
     Returns:
         The hits, ranked best first.
@@ -391,9 +439,14 @@ def vector_search(
     key = _filter_key(law_filter)
     # AI: metadata filter, applied inside Chroma before the nearest-neighbour search
     where: Any = {"law": {"$in": list(key)}} if key else None
-    hits = load_vector_store().similarity_search_with_score(  # AI: nearest neighbours
-        query_de, k=k or config.RETRIEVAL_TOP_K, filter=where
-    )
+    store = load_vector_store()
+    depth = k or config.RETRIEVAL_TOP_K
+    if embedding is None:
+        hits = store.similarity_search_with_score(query_de, k=depth, filter=where)
+    else:  # AI: nearest neighbours of a vector computed in the batch call
+        hits = store.similarity_search_by_vector_with_relevance_scores(
+            embedding, k=depth, filter=where
+        )
     return [ScoredChunk(_chunk_id(doc), doc, 1.0 / (1.0 + distance)) for doc, distance in hits]
 
 
@@ -478,10 +531,13 @@ def _run_queries(
 ) -> list[ScoredChunk]:
     """Run every query in the given mode and fuse all result lists."""
     depth = max(k, config.RETRIEVAL_FETCH_K)
+    vectors = embed_queries(queries) if mode in ("vector", "hybrid") else []
     lists: list[list[ScoredChunk]] = []
-    for query in queries:
+    for index, query in enumerate(queries):
         if mode in ("vector", "hybrid"):
-            lists.append(vector_search(query, law_filter=law_filter, k=depth))
+            lists.append(
+                vector_search(query, law_filter=law_filter, k=depth, embedding=vectors[index])
+            )
         if mode in ("bm25", "hybrid"):
             lists.append(keyword_search(query, law_filter=law_filter, k=depth))
     return reciprocal_rank_fusion(lists, k=k)

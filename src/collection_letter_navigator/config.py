@@ -90,6 +90,9 @@ PROVIDER_PREFERENCES: dict[str, object] = {"data_collection": "deny", "zdr": Tru
 #: Default reasoning effort passed to the chat model (FR-20 AC1, NFR-03).
 REASONING_EFFORT: str = os.getenv("REASONING_EFFORT", "low")
 
+#: Reasoning effort of the retrieval-plan call; may be lower than the answer's (R-11, NFR-04).
+PLAN_REASONING_EFFORT: str = os.getenv("PLAN_REASONING_EFFORT", REASONING_EFFORT)
+
 #: Token ceiling per call; reasoning tokens count against it (NFR-03).
 MAX_TOKENS: int = 4_000
 
@@ -226,6 +229,46 @@ GET_HELP_LINKS: tuple[tuple[str, str], ...] = (
     ("Consumer advice centres (Verbraucherzentrale)", "https://www.verbraucherzentrale.de"),
     ("Free debt counselling (Schuldnerberatung)", "https://www.meine-schulden.de"),
 )
+
+#: Answer options of "Who sent the letter?" (FR-01 AC1).
+SENDER_LABELS: dict[str, str] = {
+    "creditor": "The company I owe money to (e.g. a shop, bank, insurer or phone provider)",
+    "collection_agency": "A debt collection agency or a law firm collecting for someone else",
+    "court": "A court",
+    "not_sure": "I'm not sure",
+}
+
+#: Answer options of "Which document is it?", one line each (FR-01 AC2).
+COURT_DOCUMENT_LABELS: dict[str, str] = {
+    "mahnbescheid": "Mahnbescheid – payment order: first court letter, claim not checked",
+    "vollstreckungsbescheid": (
+        "Vollstreckungsbescheid – enforcement order: issued when no objection was filed"
+    ),
+    "unclear": "Unclear – I can't tell which of the two it is",
+}
+
+#: Help text of the delivery date (FR-01 AC1).
+DELIVERY_DATE_HELP_EN: str = (
+    "For court letters, use the delivery date written on the envelope. "
+    "If you don't know it, use the day you found the letter."
+)
+
+#: Guide shown for "not sure" (FR-01 AC4).
+NOT_SURE_GUIDE_EN: str = (
+    "**How to tell a court letter from a company letter:** a court letter names a court "
+    "(*Amtsgericht*) as the sender, usually comes in a yellow envelope with the delivery "
+    "date written on it (*Zustellung*), and has a case number (*Geschäftszeichen*). "
+    "A collection agency or a company writes on its own letterhead and sets its own "
+    "payment date."
+)
+
+#: Caution shown for "not sure" (FR-01 AC4).
+NOT_SURE_CAUTION_EN: str = (
+    "If this is a court document, a two-week deadline may already be running."
+)
+
+#: Number of earlier question-answer pairs passed to the answer call (FR-08).
+HISTORY_TURNS: int = 3
 
 #: "Common situations" buttons shown below the chat input (FR-03 AC4).
 COMMON_SITUATIONS: tuple[str, ...] = (

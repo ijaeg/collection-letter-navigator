@@ -60,7 +60,16 @@ class FakeChatModel:
                 model.calls.append((f"structured:{schema.__name__}", list(messages)))
                 value = model.structured[schema].pop(0)
                 if kwargs.get("include_raw"):
-                    return {"raw": AIMessage(content=""), "parsed": value, "parsing_error": None}
+                    raw = AIMessage(
+                        content="",
+                        usage_metadata={
+                            "input_tokens": 700,
+                            "output_tokens": 80,
+                            "total_tokens": 780,
+                            "output_token_details": {"reasoning": 0},
+                        },
+                    )
+                    return {"raw": raw, "parsed": value, "parsing_error": None}
                 return value
 
         return Structured()
