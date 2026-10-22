@@ -163,6 +163,41 @@ R1 and R3 (no query translation) are not affected by either change: R1 80 % in a
 - **`PIN_EXPLICIT_REFERENCES` is on by default** (switch off with `PIN_EXPLICIT_REFERENCES=off`).
 - Limits for the README: 10 questions, 2 runs – "100 %" means none of the 10 was missed, not a general result; pinning relies on the model naming correct section numbers (limited to two, inside the filter). The test set decides on Fri 10-23.
 
+## D-9 Retrieval plan with reasoning effort `minimal`, and batched embeddings (Wed 10-21 / Thu 10-22)
+
+**Question:** answers took longer than the 20 s of NFR-04. Where does the time go, and can the plan call be made cheaper without losing retrieval quality?
+
+**Latency on the 10 development questions** (`scripts/measure_latency.py`, one run each, `gpt-5-mini`, answer call always `low`):
+
+| Median (max) | `low` (10-21) | plan `minimal` (10-21) | `low`, batched embeddings (10-22) |
+|---|---|---|---|
+| Retrieval plan | 7.4 s (11.0) | 2.1 s (11.8) | 4.9 s (8.0) |
+| Search | 4.5 s (44.8) | 1.9 s (8.5) | **0.5 s (0.6)** |
+| Answer | 15.2 s (26.4) | 9.9 s (19.2) | 8.2 s (13.0) |
+| Total | 28.2 s (79.6) | 15.4 s (29.0) | **14.6 s (21.0)** |
+| Above 20 s | 8 of 10 | 3 of 10 | 1 of 10 |
+
+- The plan with `minimal` uses no reasoning tokens (64–512 with `low`), so the 4–5 s saving is systematic.
+- The answer call ran with the same setting in all three runs and still varied from 8 to 15 s in the median: provider and network variation. Only the search difference in the last column is caused by the code change.
+
+**Retrieval quality with `minimal`** (`eval/dev_results_plan_minimal.csv`, 2 runs, against `eval/dev_results_d8_pin.csv`):
+
+| Config | Hit-Rate@5 `low` → `minimal` | MRR@10 |
+|---|---|---|
+| R2 | 100 % → 100 % | 0.80 → 0.72 |
+| R4 | 100 % → **90 %** | 0.81 → 0.81 |
+
+- New miss in R4: **D01** (objection period of a Mahnbescheid) in both runs; the expected provisions moved to ranks 6–8.
+- Cause, visible in the debug log: with `minimal` the plans name section numbers less often (D05 without § 195, D07 without § 288, D08 without § 286) and once the wrong law ("§ 222 BGB" instead of ZPO). Without a named section, pinning (D-8) does not apply.
+
+**Batched embeddings:** the search sent one embedding request per German query, one after the other (up to three round trips; outliers of 14 s and 45 s). Now all queries of a plan go out in one request (`retrieval.embed_queries`, `PrefixedEmbeddings.embed_queries`). The vectors are the same; a test checks one request for three queries and the same hits as the query-by-query search, so the evaluation results stay valid without a new run.
+
+### Decision
+
+- **D-9: the retrieval plan stays at `low`.** `minimal` violates the rule of D-8 (no new misses) on the most important question; `PLAN_REASONING_EFFORT` stays configurable.
+- **Batched embeddings are kept** (search median 4.5 s → 0.5 s, no change in results).
+- For the README: answer time median ≈ 15 s, but it depends on the provider; occasional answers above 20 s remain a known limitation.
+
 ## Open points for the next days
 
 - Sat 10-17: build the index for the BGB and ZPO scope (FR-04) with `qwen/qwen3-embedding-8b`; write the 10 development questions (`eval/dev_questions.json`).
@@ -170,3 +205,4 @@ R1 and R3 (no query translation) are not affected by either change: R1 80 % in a
 - Spec v0.2 (Mon 10-19): D-1 decision, NFR-01 guardrail note, `.env.example`/`config.py` (model, empty prefixes), rules for `prompts/retrieval_plan.md`, today's date in the system prompt (FR-10), BM25 directly with `rank-bm25` instead of `langchain-community` (deprecation warning), load `.env` before `config.py` reads environment variables, provider options for data retention (D-3), evaluation runs each question at least twice (§7.2).
 - Done: provider options for embeddings (D-3) work – the index was built with them on Fri 10-16. Spike gate passed on Mon 10-19 (see above). E-8 decided on Mon 10-19 (variant A, see above). All spike items are closed; next: spec v0.2.
 - D-8 decided on Tue 10-20 (both changes kept, pinning on by default, see above).
+- D-9 decided on Wed 10-21 (retrieval plan stays `low`); query embeddings batched on Thu 10-22 (see above).
