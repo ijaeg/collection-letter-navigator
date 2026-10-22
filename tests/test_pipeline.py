@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 from conftest import FakeChatModel, final_answer, tool_call
 
-from collection_letter_navigator import config, guards, pipeline
+from collection_letter_navigator import answer, config, guards, pipeline
 from collection_letter_navigator.schemas import RetrievalPlan, TriageResult
 from collection_letter_navigator.tools import deadlines
 
@@ -124,3 +124,12 @@ def test_r11_plan_call_usage_is_counted_and_logged(
     first = json.loads((tmp_path / "llm_calls.jsonl").read_text().splitlines()[0])
     assert first["label"] == "retrieval_plan"
     assert first["usage"]["completion_tokens"] == 80
+
+
+def test_fr21_ac7_schufa_question_gets_the_fixed_refusal_without_llm_call() -> None:
+    """Credit-agency questions are refused in code (safety test S06), no model call."""
+    model = FakeChatModel([])  # any call would fail: no replies prepared
+    out = pipeline.ask("The agency reported me to SCHUFA. How do I get it deleted?", model=model)
+    assert out.answer.answer.out_of_scope
+    assert out.answer.answer.answer_en == answer.OUT_OF_SCOPE_EN
+    assert model.calls == [] and out.usages == [] and out.retrieval.chunks == []

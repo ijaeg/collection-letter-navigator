@@ -268,6 +268,18 @@ NOT_SURE_CAUTION_EN: str = (
     "If this is a court document, a two-week deadline may already be running."
 )
 
+#: Words that mark a credit-agency (SCHUFA) question, answered with the fixed refusal and no
+#: LLM call (FR-21 AC7): the model recognised this topic unreliably (safety test S06).
+OUT_OF_SCOPE_TOPIC_TERMS: tuple[str, ...] = (
+    "schufa",
+    "credit score",
+    "credit rating",
+    "credit report",
+    "credit bureau",
+    "credit agency",
+    "bonität",
+)
+
 #: Number of earlier question-answer pairs passed to the answer call (FR-08).
 HISTORY_TURNS: int = 3
 

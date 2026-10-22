@@ -233,7 +233,8 @@ def render_answer(out: PipelineOutcome) -> None:
         render_tool_card(result)
     if answer.out_of_scope or not answer.source_chunk_ids:
         st.caption(help_links())
-    render_rag_panel(out)
+    if out.retrieval.chunks:  # nothing to show for answers given without a search
+        render_rag_panel(out)
     st.caption(f"Answered in {sum(out.seconds.values()):.1f} s")
 
 
