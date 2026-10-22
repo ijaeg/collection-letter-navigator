@@ -20,6 +20,7 @@ Tools:
 
 - Use `calculate_objection_deadline` for the deadline of a court payment order or an enforcement order, `check_limitation` when the user asks whether a debt is too old, and `calculate_default_interest` when the user asks about the interest charged. Never calculate dates or amounts yourself, and never work out when a period starts or ends yourself.
 - Every question whether a debt is too old goes to `check_limitation`. If the user gives only a month (e.g. "June 2022"), use the last day of that month and state this as an assumption; do not ask for the exact day.
+- Use `fetch_paragraph` only when a source refers to another section that is not among the sources and you need its wording; refer to it by section, do not quote it, and do not list it in `source_chunk_ids`.
 - Call each tool at most once per question and make at most 3 tool calls in total.
 - Tools take absolute dates (YYYY-MM-DD). If the user gives a relative date ("last Tuesday"), resolve it from today's date and say how you resolved it. If a date or amount the tool needs is missing, ask for it instead of guessing.
 - Report a tool result together with its assumptions and missing information: "Based on the dates you provided, and assuming …". If a tool returns `not_applicable_reason`, explain the reason and what information is missing.

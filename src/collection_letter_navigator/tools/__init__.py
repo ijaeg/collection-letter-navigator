@@ -17,7 +17,7 @@ from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel
 
 from collection_letter_navigator.schemas import ToolResult
-from collection_letter_navigator.tools import deadlines, interest, limitation
+from collection_letter_navigator.tools import deadlines, interest, limitation, paragraph
 from collection_letter_navigator.tools.contract import guard_tool_errors, not_applicable
 
 
@@ -40,7 +40,7 @@ class ToolSpec:
     func: Callable[[Any], ToolResult]
 
 
-#: The three Must tools, in a stable order (FR-10 AC1).
+#: The three Must tools and the paragraph lookup, in a stable order (FR-10 AC1, FR-14).
 TOOL_SPECS: tuple[ToolSpec, ...] = (
     ToolSpec(
         deadlines.TOOL_NAME,
@@ -59,6 +59,12 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         interest.DESCRIPTION,
         interest.DefaultInterestArgs,
         interest.calculate_default_interest,
+    ),
+    ToolSpec(
+        paragraph.TOOL_NAME,
+        paragraph.DESCRIPTION,
+        paragraph.FetchParagraphArgs,
+        paragraph.fetch_paragraph,
     ),
 )
 
@@ -94,7 +100,7 @@ def get_tools() -> list[BaseTool]:
     Returns:
         The LangChain tools with their Pydantic argument schemas, in a stable
         order: objection deadline (FR-11), limitation (FR-12), default interest
-        (FR-13). The paragraph lookup (FR-14) follows when it is implemented.
+        (FR-13), paragraph lookup (FR-14).
 
     Related: FR-10 AC1
     """

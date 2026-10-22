@@ -17,11 +17,12 @@ def test_module_imports() -> None:
 
 
 def test_fr10_ac1_registry_exposes_the_three_must_tools() -> None:
-    """Deadline, limitation and interest tools are always bound, in a stable order."""
+    """Deadline, limitation, interest and paragraph tools are bound, in a stable order."""
     assert [tool.name for tool in tools.get_tools()] == [
         "calculate_objection_deadline",
         "check_limitation",
         "calculate_default_interest",
+        "fetch_paragraph",
     ]
 
 
