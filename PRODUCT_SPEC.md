@@ -4,7 +4,7 @@
 |---|---|
 | **Project** | Turing College – AI Engineering, Sprint 2 project ("Building Applications with AI") |
 | **Author** | Ingo Jäger |
-| **Status** | Draft v0.2.3 – 2026-10-22 (changes: see §13) |
+| **Status** | Draft v0.2.4 – 2026-10-22 (changes: see §13) |
 | **Audience** | Developer (implementation guide) and Turing College tutor (review guide) |
 | **Stack** | Python 3.13 (uv), Streamlit, LangChain against the OpenRouter API (OpenAI-compatible, chat and embeddings), Chroma, BM25 (`rank-bm25`), Pydantic |
 | **Time budget** | Estimated effort ≈ 50–60 hours plus learning time; available ≈ 100 hours from Fri 2026-10-16 to Wed 2026-10-28 (8–9 h on weekdays, max. 6 h on weekend days), including tests, evaluation, documentation and review preparation (see §11) |
@@ -284,7 +284,7 @@ An optional panel in `CHAT`: the user pastes the German text of the letter.
 - AC6: The knowledge-base snapshot date and the base-rate table date are shown in the sidebar.
 - AC7: Out-of-scope topics (garnishment, insolvency, B2B, SCHUFA disputes) are recognised and answered with a short refusal and referral. The prompt makes the model decide the scope before reading the sources; the code guarantees the referral (`answer.ensure_referral`): a "not found" sentence on an out-of-scope answer is replaced by a fixed out-of-scope text, and any other out-of-scope text without a referral gets one appended.
 - AC9: **Personal insolvency:** if the user says they have filed for or are in personal insolvency, the app answers calmly that this situation is outside its scope, gives no further legal analysis of the claim, and points to free debt counselling (and, if proceedings are open, the insolvency administrator). Covered by at least one safety test case.
-- AC8: At least 12 safety and security test cases are documented in `docs/safety_tests.md` with input, expected and actual behaviour, including: "Should I pay?", "Can I just ignore this?", personal insolvency, garnishment, a prompt injection in a pasted letter, and a request for the system prompt.
+- AC8: At least 12 safety and security test cases are documented in `docs/safety_tests.md` with input, expected and actual behaviour, including: "Should I pay?", "Can I just ignore this?", personal insolvency, garnishment, a prompt injection in a pasted letter, and a request for the system prompt. **Done (2026-10-22):** 15 cases in `eval/safety_cases.json`, run against the real pipeline by `eval/run_safety_tests.py`, which applies automatic checks and writes `docs/safety_tests.md` with the full answers; every answer is reviewed by hand. The first run found one failure (a business claim answered in full, fixed in the answer prompt); in the final run 14 of 15 automatic checks passed, the remaining case (S06, SCHUFA not flagged as out of scope, run-to-run variation) is a documented limitation.
 
 #### FR-22 Prompt-injection guard (Must) – *optional task Medium 3*
 Adapted from Sprint 1, layers L1, L2 and L4:
@@ -460,6 +460,17 @@ Provisional default: **R4** (tie on Hit-Rate@5, ahead on MRR@10). Findings: the 
 
 **Tuning D-8 (development questions, 2 runs, 2026-10-20):** a lay-term list in the retrieval prompt plus pinning of explicitly named provisions after the fusion raised R2 and R4 to **100 %** Hit-Rate@5 (MRR@10 0.80 / 0.81) without new misses; the lay-term list alone gave 90 %. Both changes are kept (§12 D-8).
 
+**Test-set result (24 questions, 23 scored, 2 runs, 2026-10-22):**
+
+| Configuration | Hit-Rate@5 (run 1 / run 2) | MRR@10 | Filter accuracy | s / question |
+|---|---|---|---|---|
+| R1 vector | 87 % (87 / 87) | 0.75 | – | 1.5 |
+| **R2 translation + vector** | **96 % (91 / 100)** | **0.78** | 100 % | 8.2 |
+| R3 hybrid | 83 % (83 / 83) | 0.53 | – | 2.1 |
+| R4 translation + hybrid | 85 % (83 / 87) | 0.70 | 100 % | 8.2 |
+
+**Default: R2** (§12 D-10), target ≥ 80 % met. With the same search plan, BM25 lowers the hit rate by 11 points: it ranks neighbouring sections with many shared terms above the precise one (e.g. § 694 ZPO at rank 1–2 in R2, 9–10 in R4). Query translation adds 9 points over R1. Weaknesses: pinning of a wrongly named section (§ 204 instead of § 212 BGB, in both runs); both R2 misses in run 1 only. No tuning after this run; details in `spikes/NOTES.md` and the README.
+
 **Known limitation of the design:** R1 and R3 run without query translation and therefore **without metadata filter** (FR-05 AC5). The comparison R1 ↔ R2 measures query translation and filtering together; their individual effects are not separated. Filter accuracy is measured on the R2/R4 runs.
 
 ### 7.3 Tool-calling evaluation (Should)
@@ -546,7 +557,10 @@ collection-letter-navigator/
 │   ├── tool_cases.json
 │   ├── run_retrieval_eval.py
 │   ├── run_tool_eval.py
-│   └── retrieval_results.csv
+│   ├── retrieval_results.csv               # test-set run (§7.2, D-10)
+│   ├── latency_*.csv                       # answer time per step (NFR-04, R-11)
+│   ├── safety_cases.json                   # FR-21 AC8
+│   └── run_safety_tests.py                 # writes docs/safety_tests.md
 ├── docs/
 │   ├── safety_tests.md
 │   └── tools/                              # tool briefs
@@ -625,7 +639,8 @@ The target "at least 2 medium and 1 hard" is met by **Must** requirements alone 
 | Tue 10-20 ✓ | Tool contract; FR-11, FR-12, FR-13 with reference tests and tool briefs (`docs/tools/`); `base_rates.csv` (D-5); D-8 tuning on the development questions; **FR-09** (moved forward from Wednesday) | Done: all tool tests pass; D-8 decided |
 | Wed 10-21 ✓ | FR-08, FR-10: answer call in one call with fallback (FR-10 AC8), `prompts/answer.md` with the E-8 findings, tool-calling loop using the checks of FR-09, mocked pipeline tests; **FR-22** guards L1, L2, L4 (moved forward from Thursday); retry and debug log (NFR-02, FR-23 AC2); `pipeline.py`, `scripts/ask.py`; smoke test with 8 questions and fixes | Done: a question with tool use runs end to end in tests and against the API; 180 tests pass |
 | Thu 10-22 ✓ | UI: FR-01, FR-02, FR-03, FR-17, FR-19; FR-21, FR-23; log usage of the retrieval-plan call and measure 10 questions (R-11); D-9; batched query embeddings; R-12 | Done: all *Must* FRs of the UI demonstrable in the browser (checklist passed); 213 tests pass, 14 of them UI tests |
-| Fri 10-23 | Retrieval evaluation on the test set (§7.2), winner as default; safety tests (FR-21 AC8) | `retrieval_results.csv` complete |
+| Thu 10-22 (afternoon) ✓ | Moved forward from Friday: retrieval evaluation on the test set (§7.2), winner as default (D-10); safety tests (FR-21 AC8); README sections for both | Done: `retrieval_results.csv` complete, R2 default; 15 safety cases reviewed; 223 tests pass |
+| Fri 10-23 | Buffer, or Saturday's items moved forward (FR-16, FR-18) | – |
 | Sat 10-24 (6 h) | Letter Check (FR-16, Should); FR-18 RAG panel | Demo letter produces a checklist |
 | Sun 10-25 (6 h) | Tool-calling evaluation (§7.3); FR-24; FR-14; **feature freeze** in the evening | All *Should* items done or dropped |
 | Mon 10-26 – Tue 10-27 | README with all sections, screenshots, final test pass, bug fixes only | README complete; all AC of *Must* requirements checked |
@@ -653,6 +668,7 @@ The schedule includes the agreed way of working for every new AI concept (concep
 | D-7 | LangChain API | **Decided (2026-10-16/19):** structured output via `with_structured_output(..., method="json_schema")`; tool calling via `bind_tools` and a `ToolMessage` loop; both in **one** call via `bind_tools(..., response_format=..., strict=True)` (spike E-8, FR-10 AC8); BM25 directly with `rank-bm25` (FR-07 AC1). |
 | D-8 | Retrieval tuning | **Decided (2026-10-20):** both ideas kept – (1) up to two provisions named explicitly in the queries are moved to the top of the fused list, inside the law filter (`PIN_EXPLICIT_REFERENCES`, default on); (2) a lay term → statutory term list in `prompts/retrieval_plan.md`. On the development questions R2/R4 rose from 85 % to 100 % Hit-Rate@5 without new misses (`eval/dev_results_d8_*.csv`, `spikes/NOTES.md`). Risk: pinning relies on the model naming correct section numbers; limited to two and to the filter; stated in the README. |
 | D-9 | Reasoning effort of the retrieval plan | **Decided (2026-10-21):** stays `low`. With `minimal` (`PLAN_REASONING_EFFORT`) the plan took 1.9 s instead of 6.2 s, but on the development questions R4 fell from 100 % to 90 % Hit-Rate@5: D01 (objection period) left the top 5 in both runs, and R2 MRR@10 fell from 0.80 to 0.72 (`eval/dev_results_plan_minimal.csv`). With `minimal` the model names section numbers less often, so pinning (D-8) applies less often. Rule of D-8: no new misses. The setting stays configurable. |
+| D-10 | Default retrieval configuration | **Decided (2026-10-22):** R2 – query translation with law filter, then vector search (`RETRIEVAL_MODE` default `vector`). Test set: R2 96 % Hit-Rate@5, R4 85 %, R1 87 % (§7.2). Hybrid search (FR-07) stays implemented, tested and switchable; its result is reported as a finding. |
 | R-1 | Wrong legal statement with a source | Tool contract, quote check, "no result instead of a wrong result", ground-truth cross-check, safety tests |
 | R-2 | Line between information and advice (RDG) | No recommendations; tools give provisional, input-based checks with assumptions; referral to counselling services |
 | R-3 | Old claims under old law | Out of scope; tools refuse dates outside their supported period; interest uses historical base rates |
@@ -669,6 +685,12 @@ The schedule includes the agreed way of working for every new AI concept (concep
 ---
 
 ## 13. Change log
+
+**v0.2.4 (2026-10-22, afternoon)** – Friday's items done on Thursday:
+
+- **§7.2, D-10:** test-set results; R2 becomes the default (hybrid search loses 11 points to vector search with the same plan).
+- **FR-21 AC8 done:** 15 safety cases with automatic checks and manual review; business claims added explicitly to the out-of-scope rule of the answer prompt.
+- **§9:** `eval/safety_cases.json`, `eval/run_safety_tests.py`, `eval/latency_*.csv`. **§11:** Friday's items done; Friday becomes a buffer.
 
 **v0.2.3 (2026-10-22)** – results of Thursday (user interface):
 
