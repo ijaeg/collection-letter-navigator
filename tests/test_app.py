@@ -15,11 +15,21 @@ from typing import Any
 import pytest
 from streamlit.testing.v1 import AppTest
 
-from collection_letter_navigator import config, guards, llm, pipeline, presenter, pricing, retrieval
+from collection_letter_navigator import (
+    config,
+    guards,
+    letter_check,
+    llm,
+    pipeline,
+    presenter,
+    pricing,
+    retrieval,
+    tools,
+)
 from collection_letter_navigator.answer import AnswerOutcome
 from collection_letter_navigator.pipeline import PipelineOutcome
 from collection_letter_navigator.retrieval import RetrievalOutcome, ScoredChunk
-from collection_letter_navigator.schemas import AnswerWithSources, RetrievalPlan
+from collection_letter_navigator.schemas import AnswerWithSources, LetterFacts, RetrievalPlan
 from collection_letter_navigator.tools import limitation
 
 APP = str(config.PROJECT_ROOT / "app.py")
@@ -230,3 +240,89 @@ def test_fr24_ac1_how_it_works_page_explains_the_app() -> None:
     assert "What the app does not do" in headers and "Known limitations" in headers
     snapshot, _ = presenter.knowledge_base_dates()
     assert snapshot in "\n".join(str(m.value) for m in page.markdown)
+
+
+def stub_letter_check(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Replace the Letter Check analysis; record the text that would be sent."""
+    sent: list[str] = []
+
+    def run(redacted: str, triage: Any = None, **_: Any) -> letter_check.LetterCheckOutcome:
+        sent.append(redacted)
+        facts = LetterFacts(
+            letter_type="mahnbescheid",
+            sender_type="court",
+            service_or_receipt_date=date(2026, 10, 14),
+        )
+        results = [
+            tools.invoke_tool(name, args) for name, args in letter_check.plan_tool_calls(facts)
+        ]
+        usage = llm.LlmUsage("openai/gpt-5-mini", 1000, 100, 0, None)
+        return letter_check.LetterCheckOutcome(
+            facts, results, letter_check.build_checklist(facts, results), [usage]
+        )
+
+    monkeypatch.setattr(letter_check, "run_letter_check", run)
+    return sent
+
+
+def test_fr16_ac3_preview_shows_only_redacted_text_and_nothing_is_sent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sent = stub_letter_check(monkeypatch)
+    at = continue_with(run_app(), "court", "mahnbescheid")
+    at.text_area(key="letter_text").set_value(
+        "Herrn Max Mustermann\nIBAN DE89 3704 0044 0532 0130 00"
+    ).run()
+    at.button(key="letter_preview_btn").click().run()
+    preview = at.code[-1].value
+    assert "<NAME_1>" in preview and "<IBAN_1>" in preview and "Mustermann" not in preview
+    assert sent == []  # nothing analysed before confirmation
+
+
+def test_fr16_ac5_confirmed_letter_adds_the_checklist_to_the_chat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sent = stub_letter_check(monkeypatch)
+    at = run_app()
+    at.button(key="demo_court").click().run()
+    assert "Mustermann" in at.text_area(key="letter_text").value  # FR-03: demo letter loaded
+    at.button(key="letter_preview_btn").click().run()
+    at.button(key="letter_confirm").click().run()
+    assert not at.exception
+    assert len(sent) == 1 and "Mustermann" not in sent[0]
+    page = texts(at)
+    assert "Points worth checking in your letter" in page and "Court deadline" in page
+    assert at.session_state["usage"].calls == 1
+    assert at.session_state["letter_text"] == ""  # the original text is not kept
+
+
+def test_fr22_ac3_letter_with_injection_is_refused_in_the_panel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sent = stub_letter_check(monkeypatch)
+    at = run_app()
+    at.button(key="demo_off_topic").click().run()
+    at.button(key="letter_preview_btn").click().run()
+    assert config.INJECTION_BLOCKED_MESSAGE_EN in texts(at)
+    assert sent == []
+
+
+def test_fr16_ac6_letter_facts_reach_the_next_question_and_complete_the_triage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stub_letter_check(monkeypatch)
+    seen: list[Any] = []
+
+    def ask(question: str, triage: Any = None, history: Any = None, **kwargs: Any) -> Any:
+        seen.append(kwargs.get("letter_facts"))
+        return fake_outcome(question)
+
+    monkeypatch.setattr(pipeline, "ask", ask)
+    at = continue_with(run_app(), "court", "unclear")
+    at.text_area(key="letter_text").set_value("Mahnbescheid, zugestellt am 14.10.2026").run()
+    at.button(key="letter_preview_btn").click().run()
+    at.button(key="letter_confirm").click().run()
+    assert at.session_state["triage"].court_document == "mahnbescheid"  # completed
+    assert "The period for Widerspruch ends on" in texts(at)
+    at.chat_input[0].set_value("How much does the letter claim?").run()
+    assert seen and "Letter type: mahnbescheid" in seen[0]

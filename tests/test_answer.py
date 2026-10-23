@@ -308,3 +308,28 @@ def test_fr21_ac7_out_of_scope_topics_are_matched_as_words() -> None:
     assert answer.is_out_of_scope_topic("Will this hurt my credit score?")
     assert not answer.is_out_of_scope_topic("A collection agency wrote to me.")
     assert not answer.is_out_of_scope_topic("What is a Mahnbescheid?")
+
+
+def test_fr16_ac6_letter_facts_are_a_source_for_questions_about_the_letter() -> None:
+    """With Letter Check facts, an answer citing LETTER is kept, even without chunks."""
+    facts = "Facts from the user's letter: principal: 187.40 €; interest: 6.85 €."
+    model = FakeChatModel(
+        [final_answer("The letter claims 187.40 € plus 6.85 € interest.", ["LETTER"])]
+    )
+    empty = RetrievalOutcome(RetrievalPlan(queries_de=["x"], rationale="x"), [])
+    outcome = answer.answer_question(
+        "How much do they claim?", empty, model=model, letter_facts=facts
+    )
+    assert outcome.answer.source_chunk_ids == ["LETTER"]
+    assert outcome.answer.answer_en.startswith("The letter claims 187.40 €")
+    human = str(model.calls[0][1][-1].content)
+    assert '<source id="LETTER">' in human and "187.40" in human
+
+
+def test_fr16_ac6_letter_id_without_letter_facts_is_dropped() -> None:
+    """Without a Letter Check, LETTER is an unknown ID and the not-found rule applies."""
+    model = FakeChatModel([final_answer("The letter claims 187.40 €.", ["LETTER"])])
+    chunks = RetrievalOutcome(RetrievalPlan(queries_de=["x"], rationale="x"), [])
+    assert answer.answer_question("How much?", chunks, model=model).answer.answer_en == (
+        answer.NOT_FOUND_EN
+    )

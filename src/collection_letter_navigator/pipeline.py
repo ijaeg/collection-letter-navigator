@@ -61,6 +61,7 @@ def ask(
     k: int | None = None,
     model: BaseChatModel | None = None,
     progress: ProgressCallback | None = None,
+    letter_facts: str | None = None,
 ) -> PipelineOutcome:
     """Answer one chat question.
 
@@ -76,6 +77,8 @@ def ask(
         k: Number of chunks for the answer; defaults to :data:`config.RETRIEVAL_TOP_K`.
         model: Chat model for plan and answer; defaults to the configured model.
         progress: Receives a short label before each step (FR-17 AC2).
+        letter_facts: Facts from a Letter Check in this chat, a source of the answer
+            (FR-16 AC6).
 
     Returns:
         The outcome with retrieval, answer and timings.
@@ -115,6 +118,8 @@ def ask(
 
     report("Writing the answer…")
     started = time.perf_counter()
-    outcome = answer.answer_question(question, found, triage=triage, history=history, model=model)
+    outcome = answer.answer_question(
+        question, found, triage=triage, history=history, model=model, letter_facts=letter_facts
+    )
     seconds["answer"] = time.perf_counter() - started
     return PipelineOutcome(question, found, outcome, seconds, plan_usages)
