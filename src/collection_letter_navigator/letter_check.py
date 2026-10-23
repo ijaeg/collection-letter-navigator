@@ -254,7 +254,7 @@ def extract_letter_facts(
             parsed = reply.get("parsed") if isinstance(reply, dict) else reply
             raw = reply.get("raw") if isinstance(reply, dict) else None
             if usages is not None and isinstance(raw, AIMessage):
-                usages.append(llm.extract_usage(raw, config.CHAT_MODEL))
+                usages.append(llm.extract_usage(raw, llm.model_id(chat)))
             facts = LetterFacts.model_validate(parsed)
             llm.log_call("letter_extraction", {"facts": facts.model_dump(mode="json")})
             return facts

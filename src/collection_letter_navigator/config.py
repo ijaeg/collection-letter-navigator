@@ -90,6 +90,24 @@ PROVIDER_PREFERENCES: dict[str, object] = {"data_collection": "deny", "zdr": Tru
 #: Default reasoning effort passed to the chat model (FR-20 AC1, NFR-03).
 REASONING_EFFORT: str = os.getenv("REASONING_EFFORT", "low")
 
+#: Models offered in the developer settings (FR-20 AC1, AC3); the default comes first.
+#: Extend with ``CHAT_MODEL_OPTIONS`` (comma-separated OpenRouter IDs); no code change needed.
+CHAT_MODEL_OPTIONS: tuple[str, ...] = tuple(
+    dict.fromkeys(
+        [
+            CHAT_MODEL,
+            *(
+                m.strip()
+                for m in os.getenv("CHAT_MODEL_OPTIONS", "anthropic/claude-haiku-4.5").split(",")
+                if m.strip()
+            ),
+        ]
+    )
+)
+
+#: Reasoning efforts offered in the developer settings (FR-20 AC1).
+REASONING_EFFORT_OPTIONS: tuple[str, ...] = ("minimal", "low", "medium", "high")
+
 #: Reasoning effort of the retrieval-plan call; may be lower than the answer's (R-11, NFR-04).
 PLAN_REASONING_EFFORT: str = os.getenv("PLAN_REASONING_EFFORT", REASONING_EFFORT)
 
@@ -111,6 +129,9 @@ MAX_CHUNK_CHARACTERS: int = 2_000
 
 #: Number of chunks passed to the answer call (FR-07 AC2).
 RETRIEVAL_TOP_K: int = 6
+
+#: Range of *k* offered in the developer settings (FR-20 AC1).
+TOP_K_RANGE: tuple[int, int] = (3, 10)
 
 #: Hits fetched per query and retriever before fusion; more than k so that fusion
 #: has candidates to choose from (FR-07 AC1).

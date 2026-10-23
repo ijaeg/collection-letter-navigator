@@ -24,6 +24,7 @@ from collection_letter_navigator import (
 )
 from collection_letter_navigator.demo import DEMO_CASES
 from collection_letter_navigator.pipeline import PipelineOutcome
+from collection_letter_navigator.retrieval import RetrievalMode
 from collection_letter_navigator.schemas import (
     CourtDocumentType,
     SenderType,
@@ -74,10 +75,19 @@ def init_state() -> None:
     st.session_state.setdefault(EXAMPLES_KEY, [])
 
 
+#: Session keys of the developer settings; "Start over" keeps them (FR-20 AC1).
+DEV_KEYS = ("dev_model", "dev_effort", "dev_mode", "dev_translation", "dev_k")
+
+
 def start_over() -> None:
-    """Clear all session data and return to the triage (FR-02 AC4)."""
+    """Clear all session data and return to the triage (FR-02 AC4).
+
+    The developer settings survive: they configure the app, they are not case data.
+    """
+    kept = {key: st.session_state[key] for key in DEV_KEYS if key in st.session_state}
     st.session_state.clear()
     init_state()
+    st.session_state.update(kept)
 
 
 def start_chat(triage: TriageResult, examples: list[str] | None = None) -> None:
@@ -335,10 +345,15 @@ def answer_pending(triage: TriageResult) -> None:
     with st.chat_message("assistant"):
         status = st.status("Working on your question…", expanded=False)
         try:
+            settings = current_settings()
             out = pipeline.ask(
                 question,
                 triage,
                 presenter.history_messages(turns),
+                mode=cast(RetrievalMode, settings.retrieval_mode),
+                query_translation=settings.query_translation,
+                k=settings.k,
+                model=presenter.chat_model_for(settings),
                 progress=lambda label: status.update(label=label),
                 letter_facts=letter_facts,
             )
@@ -466,7 +481,9 @@ def analyse_pending_letter(triage: TriageResult) -> None:
     with st.chat_message("assistant"):
         status = st.status("Reading your letter…", expanded=False)
         try:
-            outcome = letter_check.run_letter_check(redacted, triage)
+            outcome = letter_check.run_letter_check(
+                redacted, triage, model=presenter.chat_model_for(current_settings())
+            )
         except llm.LlmCallError as error:
             status.update(label="Something went wrong", state="error")
             reply.update(kind="error", content=llm.friendly_error_message(error))
@@ -483,6 +500,52 @@ def analyse_pending_letter(triage: TriageResult) -> None:
 
 
 # --- Sidebar and footer ----------------------------------------------------------------
+
+
+def current_settings() -> presenter.DevSettings:
+    """The developer settings from the sidebar widgets, defaults where not set (FR-20 AC4)."""
+    default = presenter.DevSettings()
+    state = st.session_state
+    return presenter.DevSettings(
+        model=state.get("dev_model", default.model),
+        reasoning_effort=state.get("dev_effort", default.reasoning_effort),
+        retrieval_mode=state.get("dev_mode", default.retrieval_mode),
+        query_translation=state.get("dev_translation", default.query_translation),
+        k=state.get("dev_k", default.k),
+    )
+
+
+def render_dev_settings() -> None:
+    """The collapsible developer settings (FR-20 AC1); the main page works without them."""
+    default = presenter.DevSettings()
+    with st.expander("Developer settings"):
+        st.selectbox("Model", config.CHAT_MODEL_OPTIONS, key="dev_model")
+        efforts = list(config.REASONING_EFFORT_OPTIONS)
+        st.selectbox(
+            "Reasoning effort",
+            efforts,
+            index=efforts.index(default.reasoning_effort),
+            key="dev_effort",
+        )
+        modes = ["vector", "bm25", "hybrid"]
+        st.radio(
+            "Retrieval mode",
+            modes,
+            index=modes.index(default.retrieval_mode),
+            horizontal=True,
+            key="dev_mode",
+        )
+        st.toggle("Query translation", value=default.query_translation, key="dev_translation")
+        low, high = config.TOP_K_RANGE
+        st.slider("Chunks passed to the answer (k)", low, high, default.k, key="dev_k")
+        changes = current_settings().changes()
+        if changes:
+            st.caption(
+                "⚠️ Not the evaluated configuration (R2): " + ", ".join(changes) + ". "
+                "Applies to the next question."
+            )
+        else:
+            st.caption("Defaults: the configuration chosen in the retrieval evaluation (R2).")
 
 
 def render_sidebar() -> None:
@@ -511,8 +574,9 @@ def render_sidebar() -> None:
         st.subheader("Knowledge base")
         st.caption(
             f"German law as of {statutes} (BGB, ZPO, RDG) · base rate table up to "
-            f"{base_rate} · model {config.CHAT_MODEL}"
+            f"{base_rate} · model {current_settings().model}"
         )
+        render_dev_settings()
         if st.button("Start over", key="start_over", use_container_width=True):
             start_over()
             st.rerun()

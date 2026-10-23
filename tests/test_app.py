@@ -326,3 +326,39 @@ def test_fr16_ac6_letter_facts_reach_the_next_question_and_complete_the_triage(
     assert "The period for Widerspruch ends on" in texts(at)
     at.chat_input[0].set_value("How much does the letter claim?").run()
     assert seen and "Letter type: mahnbescheid" in seen[0]
+
+
+def test_fr20_ac1_developer_settings_reach_the_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[dict[str, Any]] = []
+
+    def ask(question: str, triage: Any = None, history: Any = None, **kwargs: Any) -> Any:
+        seen.append(kwargs)
+        return fake_outcome(question)
+
+    monkeypatch.setattr(pipeline, "ask", ask)
+    monkeypatch.setattr(llm, "build_chat_model", lambda model=None, **kw: f"chat:{model}")
+    at = continue_with(run_app(), "collection_agency")
+    at.chat_input[0].set_value("What fees can they charge?").run()
+    assert (seen[0]["mode"], seen[0]["k"], seen[0]["model"]) == (
+        config.RETRIEVAL_MODE,
+        config.RETRIEVAL_TOP_K,
+        None,
+    )  # FR-20 AC4: defaults without opening the settings
+    at.radio(key="dev_mode").set_value("bm25").run()
+    at.toggle(key="dev_translation").set_value(False).run()
+    at.slider(key="dev_k").set_value(4).run()
+    at.selectbox(key="dev_model").set_value(config.CHAT_MODEL_OPTIONS[-1]).run()
+    assert "Not the evaluated configuration" in "\n".join(str(c.value) for c in at.sidebar.caption)
+    at.chat_input[0].set_value("And the interest?").run()
+    last = seen[-1]
+    assert (last["mode"], last["query_translation"], last["k"]) == ("bm25", False, 4)
+    assert last["model"] == f"chat:{config.CHAT_MODEL_OPTIONS[-1]}"
+
+
+def test_fr20_ac1_start_over_keeps_the_developer_settings() -> None:
+    """Start over and the demo cases reset the case, not the developer settings."""
+    at = continue_with(run_app(), "collection_agency")
+    at.radio(key="dev_mode").set_value("bm25").run()
+    at.button(key="start_over").click().run()
+    assert at.session_state["dev_mode"] == "bm25"
+    assert at.session_state["app_state"] == "TRIAGE"  # the case data is gone

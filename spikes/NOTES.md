@@ -243,6 +243,15 @@ Run: `uv run python eval/run_retrieval_eval.py` – 24 test questions (`eval/ret
 
 **Tool-calling evaluation (§7.3), 15 cases, 2 runs (`eval/tool_results.csv`):** 100 % tool selection, 100 % argument accuracy (18 calls). The cases are clearly worded; see the README for the limits.
 
+## D-14 Second provider for the developer settings (Fri 10-23)
+
+- First candidate `google/gemini-2.5-flash` (FR-20 AC3): the app showed HTTP 404. Raw error from OpenRouter: "No endpoints found matching your data policy (Zero data retention)". The model has three endpoints, all Google AI Studio (flex, standard, priority), and none of them is in the ZDR list (`https://openrouter.ai/api/v1/endpoints/zdr`). Tools and `response_format` would be supported – the block is the privacy setting, not the code.
+- ZDR list checked for the candidates: `anthropic/claude-haiku-4.5` via Amazon Bedrock (us, eu-west-1, global) with tools and `response_format`; via Google Vertex with tools only. `openai/gpt-5-mini` via Azure.
+- **D-14:** second provider is `anthropic/claude-haiku-4.5`; D-3 stays as it is. `CHAT_MODEL_OPTIONS` defaults to Haiku.
+- Tool evaluation with Haiku, 1 run (`eval/tool_results_haiku.csv`): 100 % tool selection (15 of 15), 100 % argument accuracy (9 calls). C05 also called `fetch_paragraph` twice.
+- Found in the browser test: "Start over" and the demo cases cleared the developer settings → they are now kept (`app.DEV_KEYS`).
+- The 404 message says "Please try again", which does not help here; left as a known limitation in the README.
+
 ## Open points for the next days
 
 - Sat 10-17: build the index for the BGB and ZPO scope (FR-04) with `qwen/qwen3-embedding-8b`; write the 10 development questions (`eval/dev_questions.json`).
@@ -253,3 +262,4 @@ Run: `uv run python eval/run_retrieval_eval.py` – 24 test questions (`eval/ret
 - D-9 decided on Wed 10-21 (retrieval plan stays `low`); query embeddings batched on Thu 10-22 (see above).
 - D-10 decided on Thu 10-22 (test set: R2 wins with 96 % Hit-Rate@5, default retrieval mode `vector`; see above).
 - D-11 decided on Thu 10-22, D-12 and D-13 on Fri 10-23 (SCHUFA refusal in code, letter facts as source, triage completed from the letter); tool evaluation 100 % / 100 % (see above).
+- D-14 decided on Fri 10-23 (Haiku as second provider, Gemini blocked by ZDR); FR-20 done (see above).
