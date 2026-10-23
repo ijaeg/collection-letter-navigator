@@ -9,9 +9,10 @@ from __future__ import annotations
 
 from datetime import date
 
+import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
-from collection_letter_navigator import config, demo, presenter, retrieval
+from collection_letter_navigator import config, demo, llm, presenter, retrieval
 from collection_letter_navigator.llm import LlmUsage
 from collection_letter_navigator.retrieval import RetrievalOutcome, ScoredChunk
 from collection_letter_navigator.schemas import RetrievalPlan, TriageResult
@@ -156,3 +157,30 @@ def test_fr18_ac1_fallback_and_missing_filter_are_named() -> None:
     plan = RetrievalPlan(queries_de=["Verjährung"], rationale="x")
     panel = presenter.rag_panel(RetrievalOutcome(plan, [], "hybrid", None, filter_fallback=True))
     assert (panel.filter_label, panel.fallback, panel.mode_label) == ("none", True, "hybrid search")
+
+
+def test_fr20_ac4_default_settings_are_the_evaluated_configuration() -> None:
+    """Without opening the sidebar, the app runs with the configured defaults."""
+    settings = presenter.DevSettings()
+    assert (settings.model, settings.retrieval_mode, settings.k) == (
+        config.CHAT_MODEL,
+        config.RETRIEVAL_MODE,
+        config.RETRIEVAL_TOP_K,
+    )
+    assert settings.is_default and settings.changes() == []
+    assert presenter.chat_model_for(settings) is None  # plan keeps its own effort (D-9)
+
+
+def test_fr20_ac2_changed_model_is_built_without_code_change(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A different model or effort builds one chat model for all calls of the question."""
+    built: list[tuple[object, object]] = []
+    monkeypatch.setattr(
+        llm, "build_chat_model", lambda model=None, **kw: built.append((model, kw)) or "chat"
+    )
+    settings = presenter.DevSettings(model="google/gemini-2.5-flash", reasoning_effort="medium")
+    assert presenter.chat_model_for(settings) == "chat"
+    assert built == [("google/gemini-2.5-flash", {"reasoning_effort": "medium"})]
+    assert settings.changes() == ["model google/gemini-2.5-flash", "reasoning medium"]
+    assert not presenter.DevSettings(k=4).is_default

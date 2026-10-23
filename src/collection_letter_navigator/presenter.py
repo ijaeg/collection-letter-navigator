@@ -18,9 +18,10 @@ from datetime import date
 from functools import cache
 
 from langchain_core.documents import Document
+from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
-from collection_letter_navigator import config, guards, pricing, retrieval
+from collection_letter_navigator import config, guards, llm, pricing, retrieval
 from collection_letter_navigator.llm import LlmUsage
 from collection_letter_navigator.retrieval import RetrievalOutcome
 from collection_letter_navigator.schemas import ToolResult, TriageResult
@@ -298,3 +299,60 @@ def rag_panel(found: RetrievalOutcome) -> RagPanel:
         mode_label=MODE_LABELS.get(found.mode, found.mode),
         rows=rows,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class DevSettings:
+    """The developer settings of the sidebar (FR-20 AC1).
+
+    Attributes:
+        model: OpenRouter model ID for plan, answer and Letter Check.
+        reasoning_effort: Reasoning effort of that model.
+        retrieval_mode: ``vector``, ``bm25`` or ``hybrid``.
+        query_translation: Whether the English question is translated first.
+        k: Number of chunks passed to the answer.
+
+    Related: FR-20 AC1, FR-20 AC4
+    """
+
+    # read at creation time, so a changed configuration is always the default
+    model: str = field(default_factory=lambda: config.CHAT_MODEL)
+    reasoning_effort: str = field(default_factory=lambda: config.REASONING_EFFORT)
+    retrieval_mode: str = field(default_factory=lambda: config.RETRIEVAL_MODE)
+    query_translation: bool = field(default_factory=lambda: config.QUERY_TRANSLATION_ENABLED)
+    k: int = field(default_factory=lambda: config.RETRIEVAL_TOP_K)
+
+    @property
+    def is_default(self) -> bool:
+        """True for the evaluated configuration (R2, §7.2) – the main page's default."""
+        return self == DevSettings()
+
+    def changes(self) -> list[str]:
+        """The settings that differ from the default, in plain words."""
+        default = DevSettings()
+        labels = {
+            "model": "model",
+            "reasoning_effort": "reasoning",
+            "retrieval_mode": "search",
+            "query_translation": "translation",
+            "k": "k",
+        }
+        return [
+            f"{label} {getattr(self, name)}"
+            for name, label in labels.items()
+            if getattr(self, name) != getattr(default, name)
+        ]
+
+
+def chat_model_for(settings: DevSettings) -> BaseChatModel | None:
+    """The chat model for the chosen settings; None keeps the configured defaults.
+
+    With the defaults, plan and answer keep their own reasoning efforts
+    (``PLAN_REASONING_EFFORT``, D-9). A changed model or effort applies to every
+    LLM call of the question. Switching needs no code change (FR-20 AC2).
+
+    Related: FR-20 AC1, FR-20 AC2
+    """
+    if settings.model == config.CHAT_MODEL and settings.reasoning_effort == config.REASONING_EFFORT:
+        return None
+    return llm.build_chat_model(settings.model, reasoning_effort=settings.reasoning_effort)
