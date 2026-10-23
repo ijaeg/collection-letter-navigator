@@ -4,7 +4,7 @@
 |---|---|
 | **Project** | Turing College – AI Engineering, Sprint 2 project ("Building Applications with AI") |
 | **Author** | Ingo Jäger |
-| **Status** | Draft v0.2.4 – 2026-10-22 (changes: see §13) |
+| **Status** | Draft v0.2.5 – 2026-10-23 (changes: see §13) |
 | **Audience** | Developer (implementation guide) and Turing College tutor (review guide) |
 | **Stack** | Python 3.13 (uv), Streamlit, LangChain against the OpenRouter API (OpenAI-compatible, chat and embeddings), Chroma, BM25 (`rank-bm25`), Pydantic |
 | **Time budget** | Estimated effort ≈ 50–60 hours plus learning time; available ≈ 100 hours from Fri 2026-10-16 to Wed 2026-10-28 (8–9 h on weekdays, max. 6 h on weekend days), including tests, evaluation, documentation and review preparation (see §11) |
@@ -232,6 +232,7 @@ Calculates the maximum statutory default interest for a consumer.
 #### FR-14 `fetch_paragraph` (Should)
 - AC1: Returns the indexed text of a given provision (`law`, `section`) from the knowledge base, e.g. to follow a cross-reference; no network call at runtime.
 - AC2: Unknown provisions return `not_applicable_reason` ("not in the knowledge base").
+- **Done (2026-10-22):** bound as the fourth tool; the answer prompt allows it only for cross-references, without quoting its text (the quote check covers retrieved chunks only) and without listing it in `source_chunk_ids`. Not called in any safety or tool-evaluation case.
 
 #### FR-15 `check_collection_fees` (Could)
 Without this tool, questions about fees are still answered from the knowledge base (FR-04 AC1 includes the RDG rules on collection costs), as explanation of the rules without a calculation. The tool is implemented **only** if, before the feature freeze, the applicable rules (RDG/RVG as in force since 2021-10-01) are verified and written down as a one-page tool brief in `docs/tools/check_collection_fees.md` (inputs, rule, assumptions, cases without result).
@@ -251,6 +252,7 @@ An optional panel in `CHAT`: the user pastes the German text of the letter.
 - AC5: The matching tools run automatically on the extracted facts (e.g. letter type `mahnbescheid` → FR-11); the result is shown as a checklist "Points worth checking", each point with its source.
 - AC6: The extracted facts are added to the chat context; the user continues in the same chat.
 - AC7: Unit tests for the redaction rules (each pattern, plus a fictional letter where every personal field is replaced) and for the mapping from `LetterFacts` to tool calls.
+- **Done (2026-10-23):** redaction rules for IBAN, e-mail, phone, case and customer/invoice numbers (the label stays, the number goes), street, postcode and city, names after "Herr/Frau" and birth dates; a second pass replaces every further occurrence of a redacted value, including the surname alone (browser test: case number and surname in the payment reference). The injection check runs on the original text. Tool mapping: court document with date of service → FR-11; invoice date → FR-12; principal, interest and invoice date → FR-13, default assumed to start 30 days after the invoice (BGB § 286 (3)). The checklist states facts with sources and never an action. The facts become source `LETTER` for later questions (D-12) and complete open triage answers (D-13). Four fictional demo letters (FR-03 AC3); browser test with the four letters and one own fictional letter passed after two fixes.
 
 ### 4.5 User interface and developer settings
 
@@ -260,7 +262,7 @@ An optional panel in `CHAT`: the user pastes the German text of the letter.
 - AC3: A permanent footer shows the disclaimer and the get-help links (FR-21).
 
 #### FR-18 RAG process panel (Should) – *optional task Easy 2*
-- AC1: A collapsible panel per answer shows: German queries, applied filter (and fallback, FR-06 AC3), retrieval mode, and the top *k* chunks with law, section and fused score.
+- AC1: A collapsible panel per answer shows: German queries, applied filter (and fallback, FR-06 AC3), retrieval mode, and the top *k* chunks with law, section and fused score. **Done (2026-10-22):** "How this answer was found", also with the plan's rationale and the seconds per step; not shown for answers given without a search.
 
 #### FR-19 Token usage and cost (Must) – *optional task Medium 5*
 - AC1: After each LLM call – retrieval plan and answer calls – prompt tokens, completion tokens (including reasoning tokens) and cost in USD are added to a session total in the sidebar; embedding calls are counted if they go through a paid API. The plan call reports its usage via `with_structured_output(..., include_raw=True)`.
@@ -282,7 +284,7 @@ An optional panel in `CHAT`: the user pastes the German text of the letter.
 - AC4: Requests for advice in the individual case ("Should I pay?") are answered with the relevant rules, deadlines and the get-help links, without a recommendation (checked by safety test cases). Answers state facts ("the period ends on 28 October 2026"), never instructions ("file an objection by …", "pay …") – in spike E-8 such instructions appeared without being asked for, so the answer prompt forbids them explicitly. An advice request gets one sentence that the app cannot advise, then the relevant facts and a pointer to free debt counselling.
 - AC5: Get-help links (consumer advice centres, free debt counselling) are shown in the footer and in every refusal; the links are checked before submission.
 - AC6: The knowledge-base snapshot date and the base-rate table date are shown in the sidebar.
-- AC7: Out-of-scope topics (garnishment, insolvency, B2B, SCHUFA disputes) are recognised and answered with a short refusal and referral. The prompt makes the model decide the scope before reading the sources; the code guarantees the referral (`answer.ensure_referral`): a "not found" sentence on an out-of-scope answer is replaced by a fixed out-of-scope text, and any other out-of-scope text without a referral gets one appended.
+- AC7: Out-of-scope topics (garnishment, insolvency, B2B, SCHUFA disputes) are recognised and answered with a short refusal and referral. SCHUFA questions are refused in code without an LLM call (§12 D-11). The prompt makes the model decide the scope before reading the sources; the code guarantees the referral (`answer.ensure_referral`): a "not found" sentence on an out-of-scope answer is replaced by a fixed out-of-scope text, and any other out-of-scope text without a referral gets one appended.
 - AC9: **Personal insolvency:** if the user says they have filed for or are in personal insolvency, the app answers calmly that this situation is outside its scope, gives no further legal analysis of the claim, and points to free debt counselling (and, if proceedings are open, the insolvency administrator). Covered by at least one safety test case.
 - AC8: At least 12 safety and security test cases are documented in `docs/safety_tests.md` with input, expected and actual behaviour, including: "Should I pay?", "Can I just ignore this?", personal insolvency, garnishment, a prompt injection in a pasted letter, and a request for the system prompt. **Done (2026-10-22):** 15 cases in `eval/safety_cases.json`, run against the real pipeline by `eval/run_safety_tests.py`, which applies automatic checks and writes `docs/safety_tests.md` with the full answers; every answer is reviewed by hand. The first run found one failure (a business claim answered in full, fixed in the answer prompt); in the final run 14 of 15 automatic checks passed, the remaining case (S06, SCHUFA not flagged as out of scope, run-to-run variation) is a documented limitation.
 
@@ -308,7 +310,7 @@ Adapted from Sprint 1, layers L1, L2 and L4:
 
 #### FR-24 "How this app works" page (Should) – *optional task Easy 4*
 - AC1: A second Streamlit page in English explains in plain language: what the app does and does not do, where the legal text comes from, how answers are checked (quote check, tool contract), the knowledge-base date, and the known limitations (§12).
-- AC2: The page is linked from the footer and the triage screen.
+- AC2: The page is linked from the footer and the triage screen. **Done (2026-10-22):** `pages/how_it_works.py`.
 
 ---
 
@@ -480,6 +482,8 @@ Provisional default: **R4** (tie on Hit-Rate@5, ahead on MRR@10). Findings: the 
 | Tool selection accuracy | Share of cases where the model calls the expected tool (or none) | ≥ 90 % |
 | Argument accuracy | Share of tool calls with all expected arguments correct | ≥ 80 % |
 
+**Result (2026-10-23, 15 cases, 2 runs, `eval/tool_results.csv`):** tool selection accuracy **100 %** (30 of 30), argument accuracy **100 %** (18 of 18 calls). `uv run python eval/run_tool_eval.py` runs every case through the full pipeline, so the model decides with the retrieved sources in context; `AnswerOutcome.tool_calls` records each tool call with its arguments. Only the expected arguments are compared (an extra end date does not count), amounts with 1 cent tolerance. The cases include a date with weekday (C04), a month-only date (C07, expected the last day of the month) and a part payment (C06). Limits: the cases are clearly worded with explicit dates and amounts and were written by the author of the prompts; ambiguous questions and questions needing two tools are not covered.
+
 ### 7.4 Answer checks (Must)
 
 - Quote fidelity: share of quotes that pass FR-09 without replacement, over all evaluation answers (reported).
@@ -549,7 +553,7 @@ collection-letter-navigator/
 │   ├── kb_scope.yaml                       # provisions to index
 │   ├── base_rates.csv                      # Bundesbank base rates with source
 │   ├── index/                              # Chroma + manifest.json
-│   └── samples/letters/                    # fictional demo letters
+│   └── samples/letters/                    # fictional demo letters: court, agency, not_sure, off_topic (FR-03 AC3)
 ├── eval/
 │   ├── dev_questions.json                  # spike / tuning only
 │   ├── dev_results.csv                     # spike gate run on the development questions
@@ -558,6 +562,7 @@ collection-letter-navigator/
 │   ├── run_retrieval_eval.py
 │   ├── run_tool_eval.py
 │   ├── retrieval_results.csv               # test-set run (§7.2, D-10)
+│   ├── tool_results.csv                    # tool-calling evaluation (§7.3)
 │   ├── latency_*.csv                       # answer time per step (NFR-04, R-11)
 │   ├── safety_cases.json                   # FR-21 AC8
 │   └── run_safety_tests.py                 # writes docs/safety_tests.md
@@ -640,9 +645,9 @@ The target "at least 2 medium and 1 hard" is met by **Must** requirements alone 
 | Wed 10-21 ✓ | FR-08, FR-10: answer call in one call with fallback (FR-10 AC8), `prompts/answer.md` with the E-8 findings, tool-calling loop using the checks of FR-09, mocked pipeline tests; **FR-22** guards L1, L2, L4 (moved forward from Thursday); retry and debug log (NFR-02, FR-23 AC2); `pipeline.py`, `scripts/ask.py`; smoke test with 8 questions and fixes | Done: a question with tool use runs end to end in tests and against the API; 180 tests pass |
 | Thu 10-22 ✓ | UI: FR-01, FR-02, FR-03, FR-17, FR-19; FR-21, FR-23; log usage of the retrieval-plan call and measure 10 questions (R-11); D-9; batched query embeddings; R-12 | Done: all *Must* FRs of the UI demonstrable in the browser (checklist passed); 213 tests pass, 14 of them UI tests |
 | Thu 10-22 (afternoon) ✓ | Moved forward from Friday: retrieval evaluation on the test set (§7.2), winner as default (D-10); safety tests (FR-21 AC8); README sections for both | Done: `retrieval_results.csv` complete, R2 default; 15 safety cases reviewed; 223 tests pass |
-| Fri 10-23 | Buffer, or Saturday's items moved forward (FR-16, FR-18) | – |
-| Sat 10-24 (6 h) | Letter Check (FR-16, Should); FR-18 RAG panel | Demo letter produces a checklist |
-| Sun 10-25 (6 h) | Tool-calling evaluation (§7.3); FR-24; FR-14; **feature freeze** in the evening | All *Should* items done or dropped |
+| Thu 10-22 (evening) ✓ | Moved forward from the weekend: FR-18, FR-24, FR-14; safety-test rerun with fixes (S04, S06, D-11) | Done: 237 tests pass; 15 of 15 safety checks |
+| Fri 10-23 ✓ | Moved forward from the weekend: Letter Check (FR-16) with demo letters; tool-calling evaluation (§7.3) | Done: browser test with five letters; tool evaluation 100 % / 100 %; 271 tests pass |
+| Sat 10-24 – Sun 10-25 | Buffer; FR-20 developer settings only if wanted (Should, conditional); **feature freeze** on Sunday evening | All *Should* items done |
 | Mon 10-26 – Tue 10-27 | README with all sections, screenshots, final test pass, bug fixes only | README complete; all AC of *Must* requirements checked |
 | Wed 10-28 | Merge to `main` by PR, *Submit Project*, book the review slot; rehearse "Design decisions" | Submitted; review slot booked |
 | Thu 10-29 – Mon 11-02 | Buffer; review; fixes requested by the reviewer only | Review passed before the deadline |
@@ -669,6 +674,9 @@ The schedule includes the agreed way of working for every new AI concept (concep
 | D-8 | Retrieval tuning | **Decided (2026-10-20):** both ideas kept – (1) up to two provisions named explicitly in the queries are moved to the top of the fused list, inside the law filter (`PIN_EXPLICIT_REFERENCES`, default on); (2) a lay term → statutory term list in `prompts/retrieval_plan.md`. On the development questions R2/R4 rose from 85 % to 100 % Hit-Rate@5 without new misses (`eval/dev_results_d8_*.csv`, `spikes/NOTES.md`). Risk: pinning relies on the model naming correct section numbers; limited to two and to the filter; stated in the README. |
 | D-9 | Reasoning effort of the retrieval plan | **Decided (2026-10-21):** stays `low`. With `minimal` (`PLAN_REASONING_EFFORT`) the plan took 1.9 s instead of 6.2 s, but on the development questions R4 fell from 100 % to 90 % Hit-Rate@5: D01 (objection period) left the top 5 in both runs, and R2 MRR@10 fell from 0.80 to 0.72 (`eval/dev_results_plan_minimal.csv`). With `minimal` the model names section numbers less often, so pinning (D-8) applies less often. Rule of D-8: no new misses. The setting stays configurable. |
 | D-10 | Default retrieval configuration | **Decided (2026-10-22):** R2 – query translation with law filter, then vector search (`RETRIEVAL_MODE` default `vector`). Test set: R2 96 % Hit-Rate@5, R4 85 %, R1 87 % (§7.2). Hybrid search (FR-07) stays implemented, tested and switchable; its result is reported as a finding. |
+| D-11 | Credit-agency (SCHUFA) questions | **Decided (2026-10-22):** answered in code with the fixed refusal and no LLM call when the question contains a SCHUFA term (`OUT_OF_SCOPE_TOPIC_TERMS`: SCHUFA, credit score/rating/report/bureau/agency, Bonität). In four runs the model had recognised this topic only once (safety test S06). Garnishment and insolvency stay with the model: their words also appear in legitimate questions, and the model handled them reliably. In addition, an out-of-scope answer that cites provisions is replaced by the fixed refusal (S04, FR-21 AC9). |
+| D-12 | Questions about the user's letter | **Decided (2026-10-23):** the Letter Check facts are passed to the answer call as one more source with the ID `LETTER` and may be cited; without a Letter Check the ID is dropped. Before, a follow-up question such as "How much does the letter claim?" got the not-found sentence, because no statute supports it (FR-08 AC3 still holds: every answer rests on a source). |
+| D-13 | Triage after a Letter Check | **Decided (2026-10-23):** a court letter completes triage answers the user left open ("not sure", "unclear"); an explicit choice is never overwritten. The deadline card then follows the letter, and a note in the chat says what was completed. |
 | R-1 | Wrong legal statement with a source | Tool contract, quote check, "no result instead of a wrong result", ground-truth cross-check, safety tests |
 | R-2 | Line between information and advice (RDG) | No recommendations; tools give provisional, input-based checks with assumptions; referral to counselling services |
 | R-3 | Old claims under old law | Out of scope; tools refuse dates outside their supported period; interest uses historical base rates |
@@ -685,6 +693,14 @@ The schedule includes the agreed way of working for every new AI concept (concep
 ---
 
 ## 13. Change log
+
+**v0.2.5 (2026-10-23)** – Thursday evening and Friday, weekend items moved forward:
+
+- **FR-14, FR-18, FR-24 done** (Thursday evening): paragraph lookup tool, RAG process panel, "How this app works" page.
+- **FR-16 done:** Letter Check with redaction (second pass for repeated values), preview and confirmation, extraction, tool mapping, checklist; demo letters (FR-03 AC3).
+- **§7.3 done:** tool-calling evaluation, 100 % tool selection and 100 % argument accuracy over 2 runs.
+- **D-11, D-12, D-13** decided (SCHUFA refusal in code, letter facts as source, triage completed from the letter).
+- **§11:** Thursday evening and Friday done; the weekend is a buffer, feature freeze on Sunday evening.
 
 **v0.2.4 (2026-10-22, afternoon)** – Friday's items done on Thursday:
 
