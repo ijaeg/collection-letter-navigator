@@ -121,6 +121,8 @@ class AnswerOutcome:
         structured_fallback: True if the final answer needed the extra
             structured-output call (FR-10 AC8).
         usages: Token usage of every LLM call of the answer (FR-19 AC1).
+        tool_calls: Every tool call the model asked for, as ``{"name", "args"}``, in
+            order, including calls over the limit (§7.3).
 
     Related: FR-09 AC1, FR-09 AC3, FR-10 AC5, FR-10 AC8, FR-17 AC1, FR-19 AC1, §7.4
     """
@@ -132,6 +134,7 @@ class AnswerOutcome:
     tool_call_limit_reached: bool = False
     structured_fallback: bool = False
     usages: list[llm.LlmUsage] = field(default_factory=list)
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _context_block(triage: TriageResult | None) -> str:
@@ -230,7 +233,8 @@ def answer_question(
     # AI: tools and the structured answer bound together - one call does either (E-8)
     bound = chat.bind_tools(tools.get_tools(), response_format=AnswerWithSources, strict=True)
     messages = build_messages(question_en, retrieval, triage, history, letter_facts=letter_facts)
-    messages, tool_results, limit_reached, usages = _loop(bound, messages)
+    calls: list[dict[str, Any]] = []
+    messages, tool_results, limit_reached, usages = _loop(bound, messages, calls)
 
     final = messages[-1]
     parsed = _parse_answer(final) if isinstance(final, AIMessage) else None
@@ -268,6 +272,7 @@ def answer_question(
         tool_call_limit_reached=limit_reached,
         structured_fallback=fallback,
         usages=usages,
+        tool_calls=calls,
     )
 
 
@@ -294,8 +299,13 @@ def _call_model(
 def _loop(
     model: Runnable[Any, Any],
     messages: list[BaseMessage],
+    calls: list[dict[str, Any]] | None = None,
 ) -> tuple[list[BaseMessage], list[ToolResult], bool, list[llm.LlmUsage]]:
-    """The tool-calling loop, also returning the usage of every call."""
+    """The tool-calling loop, also returning the usage of every call.
+
+    If ``calls`` is given, every tool call the model asks for is appended to it
+    (for the tool-calling evaluation, §7.3).
+    """
     results: list[ToolResult] = []
     usages: list[llm.LlmUsage] = []
     limit_reached = False
@@ -305,6 +315,8 @@ def _loop(
         if not reply.tool_calls:
             return messages, results, limit_reached, usages
         for call in reply.tool_calls:
+            if calls is not None:
+                calls.append({"name": call["name"], "args": dict(call.get("args") or {})})
             if len(results) >= config.MAX_TOOL_CALLS_PER_QUESTION:
                 limit_reached = True  # FR-10 AC5: every call still gets an answer message
                 content = json.dumps({"error": TOOL_LIMIT_MESSAGE})
