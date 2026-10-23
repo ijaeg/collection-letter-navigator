@@ -13,7 +13,15 @@ from typing import Any, cast
 
 import streamlit as st
 
-from collection_letter_navigator import config, guards, llm, pipeline, presenter, retrieval
+from collection_letter_navigator import (
+    config,
+    guards,
+    letter_check,
+    llm,
+    pipeline,
+    presenter,
+    retrieval,
+)
 from collection_letter_navigator.demo import DEMO_CASES
 from collection_letter_navigator.pipeline import PipelineOutcome
 from collection_letter_navigator.schemas import (
@@ -30,6 +38,13 @@ MESSAGES_KEY = "messages"
 USAGE_KEY = "usage"
 PENDING_KEY = "pending_question"
 EXAMPLES_KEY = "example_questions"
+LETTER_TEXT_KEY = "letter_text"
+LETTER_PREVIEW_KEY = "letter_preview"
+LETTER_PENDING_KEY = "letter_pending"
+LETTER_WARNING_KEY = "letter_warning"
+
+#: The user turn that stands for a Letter Check in the chat history (FR-16 AC6).
+LETTER_TURN_EN = "I pasted my letter into the Letter Check."
 
 #: The two screens of the state machine; the Letter Check is a panel in CHAT (§3).
 TRIAGE, CHAT = "TRIAGE", "CHAT"
@@ -195,7 +210,8 @@ def render_tool_card(result: ToolResult) -> None:
                 "\n".join(
                     f"- {key.replace('_', ' ')}: **{md(display_value(value))}**"
                     for key, value in result.result.items()
-                    if key != "text"  # long statute text: shown under "Legal basis" instead
+                    # long statute text and per-period lists stay off the card
+                    if key != "text" and not isinstance(value, list | dict)
                 )
             )
         if result.not_applicable_reason:
@@ -252,10 +268,26 @@ def render_rag_panel(out: PipelineOutcome) -> None:
         st.table(panel.rows)
 
 
+def render_letter_result(outcome: letter_check.LetterCheckOutcome) -> None:
+    """The Letter Check result: points worth checking and tool cards (FR-16 AC5)."""
+    st.markdown("**Points worth checking in your letter**")
+    if not outcome.checklist:
+        st.markdown("No points could be derived from the facts found in the letter.")
+    for item in outcome.checklist:
+        sources = f" ({', '.join(item.legal_basis)})" if item.legal_basis else ""
+        st.markdown(f"- **{item.title}:** {md(item.detail)}{sources}")
+    st.caption(md(letter_check.facts_summary(outcome.facts)))
+    for result in outcome.tool_results:
+        render_tool_card(result)
+    st.caption("You can now ask questions about the letter in the chat below.")
+
+
 def render_message(message: dict[str, Any]) -> None:
     """Replay one chat message from the history (FR-02 AC1)."""
     with st.chat_message(message["role"]):
-        if message.get("outcome") is not None:
+        if message.get("letter") is not None:
+            render_letter_result(message["letter"])
+        elif message.get("outcome") is not None:
             render_answer(message["outcome"])
         elif message.get("kind") == "warning":
             st.warning(message["content"])
@@ -263,6 +295,17 @@ def render_message(message: dict[str, Any]) -> None:
             st.error(message["content"])
         else:
             st.markdown(md(message["content"]))
+
+
+def chat_turns(messages: list[dict[str, Any]]) -> list[tuple[str, str]]:
+    """Question-answer pairs for the model; a Letter Check counts as one turn (FR-16 AC6)."""
+    turns: list[tuple[str, str]] = []
+    for m in messages:
+        if m.get("letter") is not None:
+            turns.append((LETTER_TURN_EN, letter_check.facts_summary(m["letter"].facts)))
+        elif m.get("outcome") is not None:
+            turns.append((m["question"], m["outcome"].answer.answer.answer_en))
+    return turns
 
 
 def answer_pending(triage: TriageResult) -> None:
@@ -277,11 +320,7 @@ def answer_pending(triage: TriageResult) -> None:
     user_message = {"role": "user", "content": question}
     messages.append(user_message)
     render_message(user_message)
-    turns = [
-        (m["question"], m["outcome"].answer.answer.answer_en)
-        for m in messages
-        if m.get("outcome") is not None
-    ]
+    turns = chat_turns(messages)
     reply: dict[str, Any] = {"role": "assistant"}
     with st.chat_message("assistant"):
         status = st.status("Working on your question…", expanded=False)
@@ -324,6 +363,7 @@ def render_chat() -> None:
     for message in st.session_state[MESSAGES_KEY]:
         render_message(message)
     answer_pending(triage)
+    analyse_pending_letter(triage)
 
     examples: list[str] = st.session_state[EXAMPLES_KEY]
     if examples:
@@ -338,12 +378,93 @@ def render_chat() -> None:
                 situation, key=f"situation_{i}", on_click=ask_later, args=(situation,)
             )
 
+    render_letter_check()
+
     typed = st.chat_input(
         "Ask a question about your letter", max_chars=config.MAX_QUESTION_CHARACTERS
     )
     if typed:
         ask_later(typed)
         st.rerun()
+
+
+# --- Letter Check -----------------------------------------------------------------------
+
+
+def preview_letter() -> None:
+    """Validate, guard and redact the pasted letter; nothing is sent yet (FR-16 AC1–AC3)."""
+    st.session_state.pop(LETTER_WARNING_KEY, None)
+    try:
+        preview = letter_check.prepare_letter(st.session_state.get(LETTER_TEXT_KEY, ""))
+    except (guards.EmptyInputError, guards.InputTooLongError, guards.InjectionDetectedError) as e:
+        st.session_state[LETTER_WARNING_KEY] = str(e)
+    else:
+        st.session_state[LETTER_PREVIEW_KEY] = preview
+
+
+def confirm_letter() -> None:
+    """Queue the confirmed, redacted letter for analysis and clear the input (FR-16 AC3)."""
+    preview: letter_check.RedactionResult = st.session_state.pop(LETTER_PREVIEW_KEY)
+    st.session_state[LETTER_PENDING_KEY] = preview.redacted_text
+    st.session_state[LETTER_TEXT_KEY] = ""  # the original text is not kept (FR-23 AC2)
+
+
+def discard_letter() -> None:
+    """Drop the preview; the text stays in the box for editing."""
+    st.session_state.pop(LETTER_PREVIEW_KEY, None)
+
+
+def render_letter_check() -> None:
+    """The optional Letter Check panel: paste, preview, confirm (FR-16)."""
+    preview: letter_check.RedactionResult | None = st.session_state.get(LETTER_PREVIEW_KEY)
+    has_text = bool(st.session_state.get(LETTER_TEXT_KEY))
+    with st.expander("Check your letter (optional)", expanded=has_text or preview is not None):
+        st.caption(
+            "Paste the German text of your letter. Personal data such as names, addresses, "
+            "IBANs and reference numbers is replaced before anything is sent, and you see the "
+            "result first."
+        )
+        if preview is None:
+            st.text_area(
+                "Letter text",
+                key=LETTER_TEXT_KEY,
+                height=220,
+                max_chars=config.MAX_LETTER_CHARACTERS,
+            )
+            st.button("Show what will be sent", key="letter_preview_btn", on_click=preview_letter)
+            if warning := st.session_state.get(LETTER_WARNING_KEY):
+                st.warning(warning)
+            return
+        counts = ", ".join(f"{n} × {rule.lower()}" for rule, n in preview.counts().items())
+        st.caption(f"Replaced: {counts or 'nothing'}. Only this text will be sent:")
+        st.code(preview.redacted_text, language=None, wrap_lines=True)
+        left, right = st.columns(2)
+        left.button(
+            "Confirm and analyse", key="letter_confirm", type="primary", on_click=confirm_letter
+        )
+        right.button("Back to editing", key="letter_discard", on_click=discard_letter)
+
+
+def analyse_pending_letter(triage: TriageResult) -> None:
+    """Run the Letter Check on the confirmed text and add the result to the chat (FR-16 AC4–AC6)."""
+    redacted = st.session_state.pop(LETTER_PENDING_KEY, None)
+    if not redacted:
+        return
+    messages: list[dict[str, Any]] = st.session_state[MESSAGES_KEY]
+    reply: dict[str, Any] = {"role": "assistant"}
+    with st.chat_message("assistant"):
+        status = st.status("Reading your letter…", expanded=False)
+        try:
+            outcome = letter_check.run_letter_check(redacted, triage)
+        except llm.LlmCallError as error:
+            status.update(label="Something went wrong", state="error")
+            reply.update(kind="error", content=llm.friendly_error_message(error))
+        else:
+            status.update(label="Done", state="complete")
+            st.session_state[USAGE_KEY].add(outcome.usages)
+            reply.update(letter=outcome)
+    messages.append(reply)
+    st.rerun()
 
 
 # --- Sidebar and footer ----------------------------------------------------------------
@@ -359,6 +480,7 @@ def render_sidebar() -> None:
             if st.button(case.label, key=f"demo_{case.key}", use_container_width=True):
                 start_over()
                 start_chat(case.triage(), list(case.questions))
+                st.session_state[LETTER_TEXT_KEY] = case.letter()  # FR-03 AC1: fictional letter
                 st.rerun()
 
         st.subheader("Usage this session")
