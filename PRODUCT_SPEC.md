@@ -4,7 +4,7 @@
 |---|---|
 | **Project** | Turing College – AI Engineering, Sprint 2 project ("Building Applications with AI") |
 | **Author** | Ingo Jäger |
-| **Status** | Draft v0.2.5 – 2026-10-23 (changes: see §13) |
+| **Status** | Draft v0.2.6 – 2026-10-23 (changes: see §13) |
 | **Audience** | Developer (implementation guide) and Turing College tutor (review guide) |
 | **Stack** | Python 3.13 (uv), Streamlit, LangChain against the OpenRouter API (OpenAI-compatible, chat and embeddings), Chroma, BM25 (`rank-bm25`), Pydantic |
 | **Time budget** | Estimated effort ≈ 50–60 hours plus learning time; available ≈ 100 hours from Fri 2026-10-16 to Wed 2026-10-28 (8–9 h on weekdays, max. 6 h on weekend days), including tests, evaluation, documentation and review preparation (see §11) |
@@ -268,12 +268,14 @@ An optional panel in `CHAT`: the user pastes the German text of the letter.
 - AC1: After each LLM call – retrieval plan and answer calls – prompt tokens, completion tokens (including reasoning tokens) and cost in USD are added to a session total in the sidebar; embedding calls are counted if they go through a paid API. The plan call reports its usage via `with_structured_output(..., include_raw=True)`.
 - AC2: If OpenRouter reports the cost of a call, that cost is used; otherwise the tokens are priced with the OpenRouter models endpoint, fetched once per session and cached (in the smoke test of 2026-10-21 no cost was reported for the answer calls). If prices are unavailable, the app shows "cost unavailable" and keeps working; a failed fetch is not cached.
 - AC3: Implementation adapted from Sprint 1 (`pricing.py`).
+- AC4: Tokens are priced with the model that actually ran the call (`llm.model_id`), so a model chosen in the developer settings (FR-20) is not priced as the default model.
 
 #### FR-20 Developer settings (Should) – *optional task Medium 1, conditional*
 - AC1: A collapsible sidebar section "Developer settings" contains: model, reasoning effort, retrieval mode (vector / BM25 / hybrid), query translation on/off, *k*.
 - AC2: The model is configured in one place (`config.py`, overridable by environment variable) and created via LangChain; switching the model needs no code change.
 - AC3 (Could): The model selector offers models from at least two providers via OpenRouter; the README reports one comparison run.
 - AC4: The main page works with defaults without opening the sidebar.
+- **Done (2026-10-23):** the settings live in the session (`presenter.DevSettings`, `st.session_state`), not in `config.py`; without opening the section the app runs the evaluated configuration R2 (D-10) with the plan at `low` (D-9). A changed model or reasoning effort applies to every LLM call of a question, including the retrieval plan and the Letter Check; any deviation from R2 is shown as a warning in the sidebar. "Start over" and the demo cases keep the settings. More models via `CHAT_MODEL_OPTIONS` (comma-separated). AC3: second provider `anthropic/claude-haiku-4.5`; tool-calling evaluation with Haiku 100 % tool selection (15 of 15) and 100 % argument accuracy (9 of 9 calls), the same as `openai/gpt-5-mini`. `google/gemini-2.5-flash` cannot be used under D-3 (D-14).
 
 ### 4.6 Safety, security and privacy
 
@@ -622,7 +624,7 @@ collection-letter-navigator/
 | Easy 2 – Visualisation of the RAG process | FR-18 | Should | high |
 | Easy 4 – Interactive help / chatbot guide | FR-03 (demo cases), FR-24 | Should | medium |
 | Hard 2 – A/B testing of RAG strategies | §7.2 (offline comparison of R1–R4) | Must | medium – offline, not live A/B |
-| Medium 1 – Multi-model support | FR-20 AC3 | Could | conditional |
+| Medium 1 – Multi-model support | FR-20 AC3 | Could | high – done, comparison run with a second provider (D-14) |
 
 Not claimed: Hard 4 (multi-language support). The app is cross-lingual (English questions, German sources), but the UI is English only.
 
@@ -647,7 +649,8 @@ The target "at least 2 medium and 1 hard" is met by **Must** requirements alone 
 | Thu 10-22 (afternoon) ✓ | Moved forward from Friday: retrieval evaluation on the test set (§7.2), winner as default (D-10); safety tests (FR-21 AC8); README sections for both | Done: `retrieval_results.csv` complete, R2 default; 15 safety cases reviewed; 223 tests pass |
 | Thu 10-22 (evening) ✓ | Moved forward from the weekend: FR-18, FR-24, FR-14; safety-test rerun with fixes (S04, S06, D-11) | Done: 237 tests pass; 15 of 15 safety checks |
 | Fri 10-23 ✓ | Moved forward from the weekend: Letter Check (FR-16) with demo letters; tool-calling evaluation (§7.3) | Done: browser test with five letters; tool evaluation 100 % / 100 %; 271 tests pass |
-| Sat 10-24 – Sun 10-25 | Buffer; FR-20 developer settings only if wanted (Should, conditional); **feature freeze** on Sunday evening | All *Should* items done |
+| Fri 10-23 (afternoon) ✓ | Moved forward from the weekend: FR-20 developer settings; comparison run with a second provider (FR-20 AC3) | Done: browser test passed; Haiku 100 % / 100 % in the tool evaluation; 276 tests pass |
+| Sat 10-24 – Sun 10-25 | Buffer; **feature freeze** on Sunday evening | All *Must* and *Should* items done |
 | Mon 10-26 – Tue 10-27 | README with all sections, screenshots, final test pass, bug fixes only | README complete; all AC of *Must* requirements checked |
 | Wed 10-28 | Merge to `main` by PR, *Submit Project*, book the review slot; rehearse "Design decisions" | Submitted; review slot booked |
 | Thu 10-29 – Mon 11-02 | Buffer; review; fixes requested by the reviewer only | Review passed before the deadline |
@@ -677,6 +680,7 @@ The schedule includes the agreed way of working for every new AI concept (concep
 | D-11 | Credit-agency (SCHUFA) questions | **Decided (2026-10-22):** answered in code with the fixed refusal and no LLM call when the question contains a SCHUFA term (`OUT_OF_SCOPE_TOPIC_TERMS`: SCHUFA, credit score/rating/report/bureau/agency, Bonität). In four runs the model had recognised this topic only once (safety test S06). Garnishment and insolvency stay with the model: their words also appear in legitimate questions, and the model handled them reliably. In addition, an out-of-scope answer that cites provisions is replaced by the fixed refusal (S04, FR-21 AC9). |
 | D-12 | Questions about the user's letter | **Decided (2026-10-23):** the Letter Check facts are passed to the answer call as one more source with the ID `LETTER` and may be cited; without a Letter Check the ID is dropped. Before, a follow-up question such as "How much does the letter claim?" got the not-found sentence, because no statute supports it (FR-08 AC3 still holds: every answer rests on a source). |
 | D-13 | Triage after a Letter Check | **Decided (2026-10-23):** a court letter completes triage answers the user left open ("not sure", "unclear"); an explicit choice is never overwritten. The deadline card then follows the letter, and a note in the chat says what was completed. |
+| D-14 | Second provider for FR-20 AC3 | **Decided (2026-10-23):** `anthropic/claude-haiku-4.5`, served with zero data retention by Amazon Bedrock (with tools and `response_format`). The first candidate `google/gemini-2.5-flash` has no ZDR endpoint on OpenRouter (only Google AI Studio); every call gets HTTP 404 "No endpoints found matching your data policy (Zero data retention)". D-3 is not relaxed for a comparison. Default second entry of `CHAT_MODEL_OPTIONS` is Haiku. |
 | R-1 | Wrong legal statement with a source | Tool contract, quote check, "no result instead of a wrong result", ground-truth cross-check, safety tests |
 | R-2 | Line between information and advice (RDG) | No recommendations; tools give provisional, input-based checks with assumptions; referral to counselling services |
 | R-3 | Old claims under old law | Out of scope; tools refuse dates outside their supported period; interest uses historical base rates |
@@ -693,6 +697,13 @@ The schedule includes the agreed way of working for every new AI concept (concep
 ---
 
 ## 13. Change log
+
+**v0.2.6 (2026-10-23, afternoon)** – FR-20 moved forward from the weekend:
+
+- **FR-20 done:** developer settings in the sidebar (model, reasoning effort, retrieval mode, query translation, *k*), defaults = R2; comparison run with a second provider (AC3).
+- **FR-19 AC4:** cost priced with the model that actually ran.
+- **D-14** decided (Haiku as second provider; Gemini 2.5 Flash has no ZDR endpoint).
+- **§10.2:** Medium 1 claimed with high confidence. **§11:** Friday afternoon done; the weekend is a buffer only.
 
 **v0.2.5 (2026-10-23)** – Thursday evening and Friday, weekend items moved forward:
 

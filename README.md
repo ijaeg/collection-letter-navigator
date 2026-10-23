@@ -130,6 +130,35 @@ need two tools and misleading wording are not covered, so 100 % means reliable t
 use for clear questions, not for every question. Whether a tool *calculates*
 correctly is checked separately by its unit tests against reference cases.
 
+## Developer settings and multi-model
+
+A collapsible "Developer settings" section at the end of the sidebar changes the
+model, the reasoning effort, the retrieval mode (vector / BM25 / hybrid), query
+translation and *k* for the current session, without a code change (FR-20). Without
+opening it, the app runs the evaluated configuration R2 with `openai/gpt-5-mini`;
+any deviation is shown as a warning ("Not the evaluated configuration (R2): …").
+Further models can be offered with `CHAT_MODEL_OPTIONS` in `.env`
+(comma-separated OpenRouter IDs). Costs are priced with the model that actually ran.
+
+**Comparison run:** the tool-calling evaluation with a second provider,
+`CHAT_MODEL=anthropic/claude-haiku-4.5 uv run python eval/run_tool_eval.py --output eval/tool_results_haiku.csv`.
+
+| Model | Provider (with zero data retention) | Runs | Tool selection | Argument accuracy |
+|---|---|---|---|---|
+| `openai/gpt-5-mini` (default) | Azure | 2 | 100 % (30 of 30) | 100 % (18 of 18 calls) |
+| `anthropic/claude-haiku-4.5` | Amazon Bedrock | 1 | 100 % (15 of 15) | 100 % (9 of 9 calls) |
+
+Both models handled the date cases (weekday, month only) correctly. One difference in
+style: for one limitation question Haiku also looked up two provisions itself
+(`fetch_paragraph`), which gpt-5-mini did not do in its runs. The comparison covers
+tool use only – not answer quality, cost or answer time – and Haiku ran once.
+
+**Gemini could not be compared.** `google/gemini-2.5-flash` was the first candidate,
+but on OpenRouter it is served only by Google AI Studio, which has no zero data
+retention endpoint. With the app's privacy setting (`zdr: true`, decision D-3) every
+call fails with HTTP 404 "No endpoints found matching your data policy". The setting
+was not relaxed for the comparison.
+
 ## Safety and security tests
 
 15 cases in `eval/safety_cases.json`, run against the real pipeline with
@@ -194,6 +223,10 @@ law, one model family, and the limits of the R1↔R2 comparison (§7.5 AC3, §12
   name repeats; other names, e.g. in a signature, may stay. The bank's BIC is kept.
 - Pinning relies on the section numbers the model writes; a wrong number can be
   pinned (retrieval evaluation, § 204 instead of § 212 BGB).
+- A model without a zero data retention endpoint (e.g. `google/gemini-2.5-flash`)
+  fails with "The model service reported an error (HTTP 404). Please try again."
+  Trying again does not help; another model has to be chosen in the developer
+  settings.
 
 ## Ideas for improvement
 
