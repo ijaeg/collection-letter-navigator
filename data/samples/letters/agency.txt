@@ -1,0 +1,30 @@
+Muster Inkasso GmbH · Fiktivallee 3 · 10115 Berlin
+Telefon: 030 12345678 · E-Mail: forderung@muster-inkasso.example
+
+Frau
+Erika Musterfrau
+Probeweg 21
+04109 Leipzig
+
+Unser Zeichen: MI-2026-55443
+Berlin, 05.10.2026
+
+Forderung der Beispiel Versand AG
+
+Sehr geehrte Frau Musterfrau,
+
+unsere Mandantin, die Beispiel Versand AG, hat uns mit dem Einzug der folgenden Forderung beauftragt:
+
+Rechnung Nr. 2026-1188 vom 01.01.2026, Kundennummer 5566778
+Hauptforderung: 600,00 EUR
+Verzugszinsen: 45,00 EUR
+Inkassokosten: 70,20 EUR
+Gesamtbetrag: 715,20 EUR
+
+Bitte überweisen Sie den Gesamtbetrag bis zum 19.10.2026 auf folgendes Konto:
+IBAN: DE89 3704 0044 0532 0130 00
+
+Zuständige Aufsichtsbehörde: Präsident des Kammergerichts, Elßholzstraße 30, 10781 Berlin.
+
+Mit freundlichen Grüßen
+Muster Inkasso GmbH
