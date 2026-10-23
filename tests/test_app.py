@@ -305,3 +305,24 @@ def test_fr22_ac3_letter_with_injection_is_refused_in_the_panel(
     at.button(key="letter_preview_btn").click().run()
     assert config.INJECTION_BLOCKED_MESSAGE_EN in texts(at)
     assert sent == []
+
+
+def test_fr16_ac6_letter_facts_reach_the_next_question_and_complete_the_triage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stub_letter_check(monkeypatch)
+    seen: list[Any] = []
+
+    def ask(question: str, triage: Any = None, history: Any = None, **kwargs: Any) -> Any:
+        seen.append(kwargs.get("letter_facts"))
+        return fake_outcome(question)
+
+    monkeypatch.setattr(pipeline, "ask", ask)
+    at = continue_with(run_app(), "court", "unclear")
+    at.text_area(key="letter_text").set_value("Mahnbescheid, zugestellt am 14.10.2026").run()
+    at.button(key="letter_preview_btn").click().run()
+    at.button(key="letter_confirm").click().run()
+    assert at.session_state["triage"].court_document == "mahnbescheid"  # completed
+    assert "The period for Widerspruch ends on" in texts(at)
+    at.chat_input[0].set_value("How much does the letter claim?").run()
+    assert seen and "Letter type: mahnbescheid" in seen[0]

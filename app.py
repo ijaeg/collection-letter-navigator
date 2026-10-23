@@ -244,6 +244,8 @@ def render_answer(out: PipelineOutcome) -> None:
     """The checked answer with legal basis, tool cards and timing (FR-08, FR-17)."""
     answer = out.answer.answer
     st.markdown(md(answer.answer_en))
+    if "LETTER" in answer.source_chunk_ids:
+        st.caption("Also based on the facts read from your letter.")
     render_legal_basis(answer.source_chunk_ids)
     for result in out.answer.tool_results:
         render_tool_card(result)
@@ -287,6 +289,12 @@ def render_message(message: dict[str, Any]) -> None:
     with st.chat_message(message["role"]):
         if message.get("letter") is not None:
             render_letter_result(message["letter"])
+            if (refined := message.get("triage_note")) is not None:
+                label = config.COURT_DOCUMENT_LABELS[refined.court_document].split(" –")[0]
+                st.info(
+                    f"Your answers were completed from the letter: court document {label}, "
+                    f"served on {refined.delivered_on:%d.%m.%Y}. You can change them above."
+                )
         elif message.get("outcome") is not None:
             render_answer(message["outcome"])
         elif message.get("kind") == "warning":
@@ -321,6 +329,8 @@ def answer_pending(triage: TriageResult) -> None:
     messages.append(user_message)
     render_message(user_message)
     turns = chat_turns(messages)
+    letters = [m["letter"] for m in messages if m.get("letter") is not None]
+    letter_facts = letter_check.facts_summary(letters[-1].facts) if letters else None
     reply: dict[str, Any] = {"role": "assistant"}
     with st.chat_message("assistant"):
         status = st.status("Working on your question…", expanded=False)
@@ -330,6 +340,7 @@ def answer_pending(triage: TriageResult) -> None:
                 triage,
                 presenter.history_messages(turns),
                 progress=lambda label: status.update(label=label),
+                letter_facts=letter_facts,
             )
         except (guards.EmptyInputError, guards.InputTooLongError) as error:
             status.update(label="Not sent", state="error")
@@ -463,6 +474,10 @@ def analyse_pending_letter(triage: TriageResult) -> None:
             status.update(label="Done", state="complete")
             st.session_state[USAGE_KEY].add(outcome.usages)
             reply.update(letter=outcome)
+            refined = letter_check.refine_triage(triage, outcome.facts)
+            if refined is not None:  # the letter answers what the triage left open
+                st.session_state[TRIAGE_KEY] = refined
+                reply.update(triage_note=refined)
     messages.append(reply)
     st.rerun()
 

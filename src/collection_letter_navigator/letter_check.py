@@ -452,6 +452,31 @@ def facts_summary(facts: LetterFacts) -> str:
     )
 
 
+def refine_triage(triage: TriageResult, facts: LetterFacts) -> TriageResult | None:
+    """Fill open triage answers from a court letter (FR-16 AC6, FR-01 AC4).
+
+    Only answers the user left open are filled: sender "not sure" or court
+    document "unclear". An explicit choice is never overwritten. The date of
+    service from the letter replaces the delivery date only when one was found.
+
+    Returns:
+        The refined triage, or None if nothing changes.
+
+    Related: FR-16 AC6, FR-01 AC3
+    """
+    if facts.letter_type not in ("mahnbescheid", "vollstreckungsbescheid"):
+        return None
+    open_sender = triage.sender == "not_sure"
+    open_document = triage.sender == "court" and triage.court_document in (None, "unclear")
+    if not (open_sender or open_document):
+        return None
+    return TriageResult(
+        sender="court",
+        court_document=facts.letter_type,
+        delivered_on=facts.service_or_receipt_date or triage.delivered_on,
+    )
+
+
 def run_letter_check(
     redacted_text: str,
     triage: TriageResult | None = None,

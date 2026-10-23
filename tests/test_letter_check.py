@@ -229,3 +229,25 @@ def test_fr16_ac5_court_letter_checklist_names_the_deadline() -> None:
     assert outcome.checklist[0].title == "Court deadline"
     assert "2026-10-28" in outcome.checklist[0].detail
     assert outcome.tool_results[0].tool == deadlines.TOOL_NAME
+
+
+def test_fr16_ac6_court_letter_completes_open_triage_answers() -> None:
+    """'not sure' and 'unclear' are filled from a court letter; explicit choices stay."""
+    facts = LetterFacts(
+        letter_type="mahnbescheid", sender_type="court", service_or_receipt_date=date(2026, 10, 14)
+    )
+    unsure = TriageResult(sender="not_sure", delivered_on=date(2026, 10, 15))
+    unclear = TriageResult(
+        sender="court", court_document="unclear", delivered_on=date(2026, 10, 15)
+    )
+    explicit = TriageResult(
+        sender="court", court_document="vollstreckungsbescheid", delivered_on=date(2026, 10, 15)
+    )
+    for open_triage in (unsure, unclear):
+        refined = letter_check.refine_triage(open_triage, facts)
+        assert refined == TriageResult(
+            sender="court", court_document="mahnbescheid", delivered_on=date(2026, 10, 14)
+        )
+    assert letter_check.refine_triage(explicit, facts) is None
+    agency = LetterFacts(letter_type="collection_letter", sender_type="collection_agency")
+    assert letter_check.refine_triage(unsure, agency) is None

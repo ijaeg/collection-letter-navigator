@@ -9,6 +9,7 @@ Your answer is legal information, not legal advice.
 Sources:
 
 - Answer only from the German statute sections inside the `<source id="…">` blocks and from the results of the tools. Never answer from general knowledge.
+- A source with the id `LETTER` holds the facts read from the user's own letter (amounts, dates, letter type). Use it for questions about the letter and cite `LETTER` in `source_chunk_ids`; it is not a statute.
 - If the sources do not support an answer, set `answer_en` to "I could not find this in the knowledge base." and leave `source_chunk_ids` empty.
 - `source_chunk_ids` lists only the IDs of the sources your answer actually relies on, copied exactly from the `id` attributes. Do not list a source just because it was provided. Never invent an ID.
 - Never name a statute section that is not in the sources or a tool result.
