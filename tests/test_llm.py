@@ -200,3 +200,17 @@ def test_fr23_ac2_debug_log_is_silent_unless_enabled(
     monkeypatch.setattr(config, "DEBUG_LOG_ENABLED", True)
     llm.log_call("answer", {"tokens": 1})
     assert json.loads(log.read_text(encoding="utf-8"))["label"] == "answer"
+
+
+def test_fr20_model_id_follows_bound_wrappers() -> None:
+    """Usage is priced with the model actually used, also behind bind_tools (FR-19, FR-20)."""
+
+    class Chat:
+        model_name = "google/gemini-2.5-flash"
+
+    class Bound:
+        bound = Chat()
+
+    assert llm.model_id(Chat()) == "google/gemini-2.5-flash"
+    assert llm.model_id(Bound()) == "google/gemini-2.5-flash"
+    assert llm.model_id(object()) == config.CHAT_MODEL

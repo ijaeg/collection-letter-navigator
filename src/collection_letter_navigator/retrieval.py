@@ -180,7 +180,7 @@ def create_retrieval_plan(
             # AI: the query-translation call, with retries on rate limits and timeouts
             started = time.perf_counter()
             reply = llm.call_with_retry(lambda: planner.invoke(messages))
-            parsed, usage = _split_structured_reply(reply)
+            parsed, usage = _split_structured_reply(reply, llm.model_id(chat))
             if usage is not None and usages is not None:
                 usages.append(usage)
             plan = RetrievalPlan.model_validate(parsed)
@@ -206,12 +206,16 @@ def create_retrieval_plan(
     raise llm.LlmCallError(f"The search plan was invalid: {last_error}")
 
 
-def _split_structured_reply(reply: Any) -> tuple[Any, llm.LlmUsage | None]:
+def _split_structured_reply(
+    reply: Any, model_name: str | None = None
+) -> tuple[Any, llm.LlmUsage | None]:
     """Separate the parsed plan from the raw reply of an ``include_raw`` call.
 
     Args:
         reply: Either ``{"raw": AIMessage, "parsed": ..., "parsing_error": ...}``
             or, from simple fakes, the parsed value itself.
+        model_name: Model that produced the reply, for pricing; defaults to
+            :data:`config.CHAT_MODEL`.
 
     Returns:
         The parsed value (None if parsing failed) and the usage of the raw reply.
@@ -220,7 +224,8 @@ def _split_structured_reply(reply: Any) -> tuple[Any, llm.LlmUsage | None]:
     """
     if isinstance(reply, dict) and {"raw", "parsed"} <= reply.keys():
         raw = reply["raw"]
-        usage = llm.extract_usage(raw, config.CHAT_MODEL) if isinstance(raw, AIMessage) else None
+        name = model_name or config.CHAT_MODEL
+        usage = llm.extract_usage(raw, name) if isinstance(raw, AIMessage) else None
         return reply["parsed"], usage
     return reply, None
 

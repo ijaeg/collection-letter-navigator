@@ -131,6 +131,24 @@ class PrefixedEmbeddings(Embeddings):
         return self._inner.embed_documents([apply_embedding_prefix(t, "query") for t in texts])
 
 
+def model_id(model: object) -> str:
+    """The OpenRouter model identifier behind a chat model, for usage and pricing.
+
+    Follows LangChain's ``bound`` wrappers (``bind_tools``); test fakes without a
+    model name count as the configured model.
+
+    Related: FR-19 AC1, FR-20 AC1
+    """
+    for _ in range(5):
+        name = getattr(model, "model_name", None)
+        if isinstance(name, str) and name:
+            return name
+        model = getattr(model, "bound", None)
+        if model is None:
+            break
+    return config.CHAT_MODEL
+
+
 def build_chat_model(
     model: str | None = None,
     *,

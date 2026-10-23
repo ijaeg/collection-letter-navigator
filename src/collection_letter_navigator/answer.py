@@ -245,7 +245,7 @@ def answer_question(
         )
         raw = llm.call_with_retry(lambda: structured.invoke(messages))  # AI: answer as JSON
         if isinstance(raw, dict) and isinstance(raw.get("raw"), AIMessage):
-            usages.append(llm.extract_usage(raw["raw"], config.CHAT_MODEL))
+            usages.append(llm.extract_usage(raw["raw"], llm.model_id(chat)))
         candidate = raw.get("parsed") if isinstance(raw, dict) else None
         llm.log_call("answer_fallback", {"parsed": candidate is not None})
         if not isinstance(candidate, AnswerWithSources):
@@ -282,7 +282,7 @@ def _call_model(
     """One answer-call request: retry, record usage, write the opt-in debug log."""
     started = time.perf_counter()
     reply = llm.invoke_with_retry(model, messages)  # AI: the model answers or calls tools
-    usage = llm.extract_usage(reply, config.CHAT_MODEL)
+    usage = llm.extract_usage(reply, llm.model_id(model))  # priced with the model actually used
     usages.append(usage)
     llm.log_call(
         "answer_call",
