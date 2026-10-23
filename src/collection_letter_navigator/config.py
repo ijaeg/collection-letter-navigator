@@ -98,7 +98,7 @@ CHAT_MODEL_OPTIONS: tuple[str, ...] = tuple(
             CHAT_MODEL,
             *(
                 m.strip()
-                for m in os.getenv("CHAT_MODEL_OPTIONS", "google/gemini-2.5-flash").split(",")
+                for m in os.getenv("CHAT_MODEL_OPTIONS", "anthropic/claude-haiku-4.5").split(",")
                 if m.strip()
             ),
         ]
