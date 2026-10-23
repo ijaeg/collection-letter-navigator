@@ -251,3 +251,16 @@ def test_fr16_ac6_court_letter_completes_open_triage_answers() -> None:
     assert letter_check.refine_triage(explicit, facts) is None
     agency = LetterFacts(letter_type="collection_letter", sender_type="collection_agency")
     assert letter_check.refine_triage(unsure, agency) is None
+
+
+def test_fr16_ac2_repeated_values_are_replaced_everywhere() -> None:
+    """A case number and a surname repeated in the payment reference go too (test case 6)."""
+    letter = (
+        "Herrn\nMaximilian Mustermann\nAktenzeichen: BI-2026-987654\n"
+        "Telefon: +493012345678\nBeispielstr. 4\n"
+        "Verwendungszweck: BI-2026-987654 / Mustermann"
+    )
+    redacted = letter_check.redact(letter).redacted_text
+    assert "Mustermann" not in redacted and "987654" not in redacted
+    assert "Verwendungszweck: <CASE_NO_1> / <NAME_1>" in redacted
+    assert "<PHONE_1>" in redacted and "<STREET_1>" in redacted

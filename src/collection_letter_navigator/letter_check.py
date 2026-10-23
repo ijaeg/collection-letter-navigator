@@ -146,7 +146,9 @@ def redact(letter_de: str) -> RedactionResult:
     IBANs, e-mail addresses, phone numbers, case and customer numbers,
     street/postcode lines, names after "Herr"/"Frau" and birth dates are
     replaced; amounts, dates and deadlines are kept because the tools need them.
-    The same value gets the same placeholder every time it occurs.
+    The same value gets the same placeholder every time it occurs, also where
+    no rule matches it: a case number repeated in the payment reference or a
+    surname without "Herr"/"Frau" is replaced too (second pass).
 
     Args:
         letter_de: The validated letter text.
@@ -158,6 +160,7 @@ def redact(letter_de: str) -> RedactionResult:
     """
     text = letter_de
     placeholders: dict[str, str] = {}
+    found: dict[str, str] = {}  # every replaced value and its placeholder
     for name, pattern in REDACTION_RULES:
         seen: dict[str, str] = {}
 
@@ -183,6 +186,14 @@ def redact(letter_de: str) -> RedactionResult:
             return whole[: start - offset] + seen[value] + whole[end - offset :]
 
         text = pattern.sub(replace, text)
+        found.update(seen)
+        if name == "NAME":  # "Max Mustermann" → the surname alone is personal data too
+            for value, placeholder in seen.items():
+                found.setdefault(value.split()[-1], placeholder)
+    # Second pass: further occurrences of a replaced value, longest values first.
+    for value in sorted(found, key=len, reverse=True):
+        if len(value) >= 4:
+            text = re.sub(rf"(?<![\w<]){re.escape(value)}(?!\w)", found[value], text)
     return RedactionResult(text, placeholders)
 
 
