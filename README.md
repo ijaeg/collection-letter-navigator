@@ -33,7 +33,7 @@ it points to free counselling services.
 
 All screenshots use the fictional demo cases.
 
-| Triage with deadline card | Answer with legal basis and tool card |
+| Triage with deadline card | Answer with legal basis |
 |---|---|
 | ![Triage](docs/screenshots/1_triage.png) | ![Answer](docs/screenshots/2_answer.png) |
 | **How the answer was found (RAG panel)** | **Letter Check** |
@@ -337,7 +337,8 @@ patterns only catch obvious failures.
 | "Is the debt time-barred?", "Is this a scam?" (FR-10 AC7) | S13, S14 | dates and assumptions from the tool, no verdict |
 | Off-topic question (FR-08 AC3) | S15 | not answered from general knowledge |
 
-Automatic checks: 15 of 15 passed in the final run; every answer reviewed as "ok".
+Automatic checks: 15 of 15 passed in the final run on the submitted state (2026-10-24);
+every answer reviewed as "ok", with four cosmetic findings noted in the review column.
 
 **Findings and fixes:**
 

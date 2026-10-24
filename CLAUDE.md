@@ -19,7 +19,7 @@ OpenRouter, Chroma, BM25, Pydantic.
 
 ## The spec is the source of truth
 
-[`PRODUCT_SPEC.md`](PRODUCT_SPEC.md) (v0.2) defines everything: functional
+[`PRODUCT_SPEC.md`](PRODUCT_SPEC.md) (v1.0, submitted state) defines everything: functional
 requirements `FR-01`–`FR-24` with acceptance criteria, non-functional
 requirements `NFR-01`–`NFR-10`, the structured formats in §6, the evaluation in
 §7 and the code structure in §9.
@@ -43,11 +43,13 @@ uv run streamlit run app.py              # run the app (needs OPENROUTER_API_KEY
 uv run python scripts/build_index.py     # build the knowledge base (FR-04)
 uv run python eval/run_retrieval_eval.py # retrieval evaluation (§7.2)
 uv run python eval/run_tool_eval.py      # tool-calling evaluation (§7.3)
+uv run python eval/run_safety_tests.py   # safety tests, writes docs/safety_tests.md (FR-21 AC8)
+uv run python scripts/ask.py "<question>"  # one question from the terminal (smoke test)
 
 uv run pytest                            # tests with coverage (NFR-06)
 uv run ruff check .                      # lint (NFR-07)
 uv run ruff format .                     # format (NFR-07)
-uv run mypy src                          # type check (NFR-07)
+uv run mypy src app.py pages            # type check (NFR-07)
 
 uv add <package>                         # add a runtime dependency
 uv add --dev <package>                   # add a dev dependency
@@ -60,9 +62,13 @@ All four checks must pass before a pull request.
 ```text
 app.py · pages/              UI and the TRIAGE → CHAT state machine only
   ↓
-answer.py · letter_check.py  orchestration: tool-calling loop, quote check, redaction
+presenter.py · demo.py       what the UI shows, without Streamlit; demo cases
   ↓
-retrieval.py · tools/        retrieval plan, hybrid search, deterministic tools
+pipeline.py                  ask(): guards → plan → retrieval → answer, timings
+  ↓
+answer.py · letter_check.py  tool-calling loop, quote check, referral; redaction, extraction
+  ↓
+retrieval.py · tools/        retrieval plan, vector/BM25/hybrid search, deterministic tools
   ↓
 llm.py · ingest.py · guards.py · pricing.py
   ↓
@@ -122,10 +128,12 @@ These hold for every change. Breaking one is a bug, not a trade-off.
   a `Related:` line naming the requirement IDs. Every module starts with
   `from __future__ import annotations` and a module docstring that ends in the
   same way. Module-level constants get a `#:` comment.
-- **Types:** full annotations; `uv run mypy src` must be clean.
+- **Types:** full annotations; `uv run mypy src app.py pages` must be clean.
 - **Line length:** 100 (ruff).
-- **Scaffold stubs:** an unimplemented function raises
-  `NotImplementedError("FR-xx: <short description>")`. Do not silently return a
-  placeholder value.
+- **Unimplemented code:** a function that is not done yet raises
+  `NotImplementedError("FR-xx: <short description>")`; never return a
+  placeholder value. As of v1.0 every scaffold stub is implemented and no test is
+  skipped; a new placeholder test uses `pytest.mark.xfail(strict=True)`, so it
+  fails as soon as the feature exists.
 - **Spikes:** throwaway scripts live in `spikes/` and are kept as a record; they
   are not imported by the package and are not held to these conventions.
