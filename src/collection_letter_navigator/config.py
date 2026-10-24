@@ -246,7 +246,7 @@ INJECTION_BLOCKED_MESSAGE_EN: str = (
 )
 
 #: Free counselling services shown in the footer and in every refusal (FR-21 AC5).
-#: TODO (FR-21 AC5): verify every link is reachable before submission.
+#: Both links checked on 2026-10-23: reachable, free services (FR-21 AC5).
 GET_HELP_LINKS: tuple[tuple[str, str], ...] = (
     ("Consumer advice centres (Verbraucherzentrale)", "https://www.verbraucherzentrale.de"),
     ("Free debt counselling (Schuldnerberatung)", "https://www.meine-schulden.de"),

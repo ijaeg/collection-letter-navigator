@@ -64,9 +64,17 @@ def test_fr05_ac4_query_translation_switch_read_from_environment(
         importlib.reload(config)
 
 
-@pytest.mark.skip(reason="not implemented: FR-23 AC3")
-def test_fr23_ac3_api_key_is_not_a_configuration_value() -> None:
+def test_fr23_ac3_api_key_is_not_a_configuration_value(monkeypatch: pytest.MonkeyPatch) -> None:
     """Only the name of the key variable is a constant, never the key itself."""
+    secret = "sk-or-v1-test-not-a-real-key"
+    monkeypatch.setenv(config.OPENROUTER_API_KEY_ENV, secret)
+    try:
+        reloaded = importlib.reload(config)
+        assert reloaded.OPENROUTER_API_KEY_ENV == "OPENROUTER_API_KEY"
+        assert all(secret not in repr(value) for value in vars(reloaded).values())
+    finally:
+        monkeypatch.undo()
+        importlib.reload(config)
 
 
 def test_d8_pinning_is_on_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
