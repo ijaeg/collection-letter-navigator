@@ -126,11 +126,6 @@ def test_fr05_question_and_triage_are_sent_inside_delimiters() -> None:
     assert "Court document: mahnbescheid" in human.content
 
 
-@pytest.mark.skip(reason="not implemented: FR-05 AC2 - the pipeline in answer.py follows (Wed)")
-def test_fr05_ac2_query_translation_always_runs_in_the_pipeline() -> None:
-    """Query translation is a fixed step, not a tool the model may skip."""
-
-
 def test_fr05_ac5_translation_off_means_unfiltered_english_query() -> None:
     """With translation off the English question is used and no filter applies."""
     plan = retrieval.passthrough_plan("Is this debt too old?")

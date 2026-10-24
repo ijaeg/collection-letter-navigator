@@ -4,7 +4,7 @@
 |---|---|
 | **Project** | Turing College – AI Engineering, Sprint 2 project ("Building Applications with AI") |
 | **Author** | Ingo Jäger |
-| **Status** | Draft v0.2.6 – 2026-10-23 (changes: see §13) |
+| **Status** | v1.0 – submitted state, 2026-10-24 (changes: see §13) |
 | **Audience** | Developer (implementation guide) and Turing College tutor (review guide) |
 | **Stack** | Python 3.13 (uv), Streamlit, LangChain against the OpenRouter API (OpenAI-compatible, chat and embeddings), Chroma, BM25 (`rank-bm25`), Pydantic |
 | **Time budget** | Estimated effort ≈ 50–60 hours plus learning time; available ≈ 100 hours from Fri 2026-10-16 to Wed 2026-10-28 (8–9 h on weekdays, max. 6 h on weekend days), including tests, evaluation, documentation and review preparation (see §11) |
@@ -284,11 +284,11 @@ An optional panel in `CHAT`: the user pastes the German text of the letter.
 - AC2: **Deadline first:** if the triage or the Letter Check identifies a court document, the deadline card stays pinned at the top of the chat (FR-01 AC3), and every answer that touches on what to do next ends with a one-line reminder of the deadline. The reminder is added in code (`answer.append_deadline_reminder`) from the result of `calculate_objection_deadline` and is left out if the answer already names the end date (ISO, `28.10.2026`, "28 October 2026" or "October 28, 2026").
 - AC3: The app never recommends ignoring a letter (checked by safety test cases, `docs/safety_tests.md`).
 - AC4: Requests for advice in the individual case ("Should I pay?") are answered with the relevant rules, deadlines and the get-help links, without a recommendation (checked by safety test cases). Answers state facts ("the period ends on 28 October 2026"), never instructions ("file an objection by …", "pay …") – in spike E-8 such instructions appeared without being asked for, so the answer prompt forbids them explicitly. An advice request gets one sentence that the app cannot advise, then the relevant facts and a pointer to free debt counselling.
-- AC5: Get-help links (consumer advice centres, free debt counselling) are shown in the footer and in every refusal; the links are checked before submission.
+- AC5: Get-help links (consumer advice centres, free debt counselling) are shown in the footer and in every refusal; the links are checked before submission. **Done (2026-10-23):** both links reachable and free services (verbraucherzentrale.de, meine-schulden.de of the Bundesarbeitsgemeinschaft Schuldnerberatung).
 - AC6: The knowledge-base snapshot date and the base-rate table date are shown in the sidebar.
 - AC7: Out-of-scope topics (garnishment, insolvency, B2B, SCHUFA disputes) are recognised and answered with a short refusal and referral. SCHUFA questions are refused in code without an LLM call (§12 D-11). The prompt makes the model decide the scope before reading the sources; the code guarantees the referral (`answer.ensure_referral`): a "not found" sentence on an out-of-scope answer is replaced by a fixed out-of-scope text, and any other out-of-scope text without a referral gets one appended.
 - AC9: **Personal insolvency:** if the user says they have filed for or are in personal insolvency, the app answers calmly that this situation is outside its scope, gives no further legal analysis of the claim, and points to free debt counselling (and, if proceedings are open, the insolvency administrator). Covered by at least one safety test case.
-- AC8: At least 12 safety and security test cases are documented in `docs/safety_tests.md` with input, expected and actual behaviour, including: "Should I pay?", "Can I just ignore this?", personal insolvency, garnishment, a prompt injection in a pasted letter, and a request for the system prompt. **Done (2026-10-22):** 15 cases in `eval/safety_cases.json`, run against the real pipeline by `eval/run_safety_tests.py`, which applies automatic checks and writes `docs/safety_tests.md` with the full answers; every answer is reviewed by hand. The first run found one failure (a business claim answered in full, fixed in the answer prompt); in the final run 14 of 15 automatic checks passed, the remaining case (S06, SCHUFA not flagged as out of scope, run-to-run variation) is a documented limitation.
+- AC8: At least 12 safety and security test cases are documented in `docs/safety_tests.md` with input, expected and actual behaviour, including: "Should I pay?", "Can I just ignore this?", personal insolvency, garnishment, a prompt injection in a pasted letter, and a request for the system prompt. **Done (2026-10-22):** 15 cases in `eval/safety_cases.json`, run against the real pipeline by `eval/run_safety_tests.py`, which applies automatic checks and writes `docs/safety_tests.md` with the full answers; every answer is reviewed by hand. The first run found one failure (a business claim answered in full, fixed in the answer prompt); S06 (SCHUFA not flagged as out of scope, run-to-run variation) led to D-11. Final run on the submitted state (2026-10-24): 15 of 15 automatic checks passed, every answer reviewed as "ok", four cosmetic findings recorded in the review column.
 
 #### FR-22 Prompt-injection guard (Must) – *optional task Medium 3*
 Adapted from Sprint 1, layers L1, L2 and L4:
@@ -634,7 +634,7 @@ The target "at least 2 medium and 1 hard" is met by **Must** requirements alone 
 
 ---
 
-## 11. Plan (as of 2026-10-22)
+## 11. Plan (as of 2026-10-24)
 
 **Capacity:** 8–9 h on weekdays, max. 6 h on Saturdays and Sundays. **Milestones:** spike gate passed on **Mon 2026-10-19**; spec v0.2 on Mon 2026-10-19; feature freeze on **Sun 2026-10-25** (evening); *Submit Project* and review booking on **Wed 2026-10-28**; hard deadline **Mon 2026-11-02**.
 
@@ -650,9 +650,10 @@ The target "at least 2 medium and 1 hard" is met by **Must** requirements alone 
 | Thu 10-22 (evening) ✓ | Moved forward from the weekend: FR-18, FR-24, FR-14; safety-test rerun with fixes (S04, S06, D-11) | Done: 237 tests pass; 15 of 15 safety checks |
 | Fri 10-23 ✓ | Moved forward from the weekend: Letter Check (FR-16) with demo letters; tool-calling evaluation (§7.3) | Done: browser test with five letters; tool evaluation 100 % / 100 %; 271 tests pass |
 | Fri 10-23 (afternoon) ✓ | Moved forward from the weekend: FR-20 developer settings; comparison run with a second provider (FR-20 AC3) | Done: browser test passed; Haiku 100 % / 100 % in the tool evaluation; 276 tests pass |
-| Sat 10-24 – Sun 10-25 | Buffer; **feature freeze** on Sunday evening | All *Must* and *Should* items done |
-| Mon 10-26 – Tue 10-27 | README with all sections, screenshots, final test pass, bug fixes only | README complete; all AC of *Must* requirements checked |
-| Wed 10-28 | Merge to `main` by PR, *Submit Project*, book the review slot; rehearse "Design decisions" | Submitted; review slot booked |
+| Sat 10-24 ✓ | Moved forward from Monday: scaffold placeholder tests replaced, `.env.example` complete, fresh-clone test (NFR-01), final safety-test run, README with all sections, screenshots, acceptance check against the task requirements, spec v1.0 | Done: 284 tests pass, none skipped; 15 of 15 safety checks; README complete |
+| Sun 10-25 | **Feature freeze** | No new features; bug fixes only |
+| Mon 10-26 – Tue 10-27 | Merge to `main` by PR, *Submit Project*, book the review slot (planned: Tue afternoon); rehearsal of the review | Submitted; review slot booked |
+| Wed 10-28 | Original submission date; buffer | – |
 | Thu 10-29 – Mon 11-02 | Buffer; review; fixes requested by the reviewer only | Review passed before the deadline |
 
 **Spike gate (held on Mon 2026-10-19, passed):** the rule was: if Hit-Rate@5 on the 10 development questions stays **below 60 %** with the best configuration, the scope is reduced (knowledge base limited to the ZPO summary payment procedure and the BGB limitation rules) instead of switching the domain. Result: **85 %** with R2 and R4 (§7.2), so the scope stays. Note: with 10 questions, one question equals 10 percentage points, and the labels come from one person – the gate was a sanity check, not a statistical test.
@@ -697,6 +698,14 @@ The schedule includes the agreed way of working for every new AI concept (concep
 ---
 
 ## 13. Change log
+
+**v1.0 (2026-10-24)** – submitted state; Monday's items done on Saturday:
+
+- **Tests:** the eight scaffold placeholders replaced by real tests (§6 contracts, FR-05 AC2, FR-23 AC3); 284 tests pass, none skipped.
+- **FR-21 AC5 done:** get-help links checked. **FR-21 AC8:** final safety-test run, 15 of 15, reviewed.
+- **NFR-01:** fresh clone installed and run with one key; the committed index stays unchanged. `.env.example` lists every optional setting.
+- **NFR-08:** README complete (architecture diagram, design decisions, data sources, ideas, traceability, tooling, screenshots).
+- **§11:** Saturday done; submission and review planned for Mon 10-26 – Tue 10-27.
 
 **v0.2.6 (2026-10-23, afternoon)** – FR-20 moved forward from the weekend:
 

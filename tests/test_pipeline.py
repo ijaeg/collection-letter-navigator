@@ -65,6 +65,21 @@ def test_fr02_ac3_guards_block_before_any_llm_call() -> None:
     assert model.calls == []
 
 
+def test_fr05_ac2_query_translation_always_runs_in_the_pipeline() -> None:
+    """Query translation is a fixed step, not a tool the model may skip."""
+    plan = RetrievalPlan(
+        queries_de=["Ratenzahlung Forderung"], law_filter=["BGB"], rationale="Instalments."
+    )
+    model = FakeChatModel(
+        [final_answer("I could not find this.", [])], structured={RetrievalPlan: [plan]}
+    )
+    out = pipeline.ask("Can I pay in instalments?", mode="bm25", model=model)
+    assert [kind for kind, _ in model.calls] == ["structured:RetrievalPlan", "invoke"]
+    assert out.retrieval.plan == plan
+    names = {getattr(tool, "name", "") for tool in model.bound_tools}
+    assert not any("plan" in name or "translat" in name for name in names)
+
+
 def test_fr05_ac4_translation_off_skips_the_plan_call() -> None:
     """With query translation off, the English question is searched unfiltered."""
     model = FakeChatModel([final_answer("I could not find this.", [])])
