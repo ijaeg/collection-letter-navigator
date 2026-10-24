@@ -4,43 +4,201 @@ A Streamlit chatbot that explains German debt collection letters and court
 payment orders in English. See [`PRODUCT_SPEC.md`](PRODUCT_SPEC.md) for the
 full specification; this README follows the sections required by NFR-08 (§10.2).
 
-**Status: scaffold.** Every module is a stub; see `CLAUDE.md` for how the
-project is built.
+**Status:** submitted for the Sprint 2 review (Turing College, AI Engineering). All
+*Must* and *Should* requirements of the spec are implemented; 284 tests pass in CI
+(ruff, mypy, pytest).
 
 > This app provides general legal information, not legal advice.
 
 ## Purpose
 
-TODO: what the app does, for whom, and the problem it solves (§1, §3).
+People in Germany who do not read German well and receive a letter from a debt
+collection agency (*Inkasso*) or a court payment order (*Mahnbescheid*) often cannot
+tell what kind of letter it is, which deadline applies and which rules matter. The
+Collection Letter Navigator answers their questions in English:
+
+- a short **triage** (who sent the letter, which court document, when it arrived) shows
+  the court's objection deadline at once;
+- answers come from a **knowledge base of German federal law** (BGB, ZPO, RDG), with the
+  verbatim German text of every provision used;
+- **deterministic tools** calculate the objection deadline, the limitation period and the
+  maximum default interest, each with its assumptions;
+- an optional **Letter Check** redacts personal data from a pasted letter, extracts the
+  facts and lists the points worth checking.
+
+The app gives legal **information**, not legal advice: it never says whether to pay, and
+it points to free counselling services.
 
 ## Screenshots
 
-TODO: triage screen, an answer with legal basis and tool card, the RAG panel.
+All screenshots use the fictional demo cases.
+
+| Triage with deadline card | Answer with legal basis and tool card |
+|---|---|
+| ![Triage](docs/screenshots/1_triage.png) | ![Answer](docs/screenshots/2_answer.png) |
+| **How the answer was found (RAG panel)** | **Letter Check** |
+| ![RAG panel](docs/screenshots/3_rag_panel.png) | ![Letter Check](docs/screenshots/4_letter_check.png) |
+| **Developer settings and usage** | |
+| ![Developer settings](docs/screenshots/5_dev_settings.png) | |
 
 ## Setup
 
-TODO: `uv sync`, `OPENROUTER_API_KEY` in `.env`, `uv run streamlit run app.py`
-(NFR-01).
+**Requirements:** [uv](https://docs.astral.sh/uv/getting-started/installation/) and an
+OpenRouter API key. uv installs Python 3.13 itself if it is missing. The knowledge base
+(Chroma index with 84 chunks) is committed, so nothing has to be downloaded or embedded.
+
+```bash
+git clone <repository-url>
+cd <repository-folder>
+uv sync
+cp .env.example .env        # then set OPENROUTER_API_KEY in .env
+uv run streamlit run app.py
+```
+
+The app opens at <http://localhost:8501>. `.env.example` lists every optional setting
+with its default (models, reasoning effort, retrieval mode, query translation, debug
+log); none is needed to run the app.
+
+**Models:** chat `openai/gpt-5-mini`, embeddings `qwen/qwen3-embedding-8b`, both via
+OpenRouter and only through providers with zero data retention (decision D-3). Course
+keys with guardrails can block single models; the fallback embedding model is
+`openai/text-embedding-3-small` (requires rebuilding the index with
+`uv run python scripts/build_index.py`).
+
+**Checks and tests:**
+
+```bash
+uv run ruff check . && uv run mypy src app.py pages && uv run pytest
+```
+
+No test calls OpenRouter; every LLM call in the tests runs against a scripted fake.
+Using the app does not change the committed index (it is opened as a working copy).
 
 ## Usage (including demo cases)
 
-TODO: the triage, the chat, the "Common situations" buttons and the four demo
-cases a reviewer can run without own data (FR-03).
+1. **Triage:** answer who sent the letter, which court document it is (if any) and when
+   it was delivered. For a court document the deadline card appears and stays pinned
+   above the chat.
+2. **Chat:** ask a question in English, or open **Common situations** ("I already paid
+   this", "Is this debt too old?", ...). Every answer shows:
+   - the answer with source IDs,
+   - **Legal basis**: the German text of each provision, with a link to
+     gesetze-im-internet.de,
+   - **tool cards** with the calculated date or amount, its assumptions and legal basis,
+   - **How this answer was found**: German search queries, law filter and ranked chunks.
+3. **Check your letter (optional):** paste the letter text (max. 6,000 characters), check
+   the redacted preview, then confirm. The result is a checklist "Points worth checking";
+   follow-up questions know the facts of the letter.
+4. **Sidebar:** demo cases, token usage and cost of the session, knowledge-base dates,
+   **Developer settings** (model, reasoning effort, retrieval mode, query translation,
+   *k*), "Start over".
+5. **How this app works:** a separate page explaining the steps for first-time users.
+
+**Demo cases** (sidebar, all data fictional), so a reviewer needs no letter of their own:
+
+| Demo case | What it shows |
+|---|---|
+| Court payment order (Mahnbescheid) | deadline card, deadline tool, deadline reminder in answers |
+| Letter from a collection agency | interest and limitation tools, information duties of the agency |
+| Not sure who sent the letter | a lawyer's letter; how to tell a court letter from others, "Is this a scam?" |
+| Off-topic and injection test | out-of-scope refusal and the injection guard |
+
+From the terminal, `uv run python scripts/ask.py "<question>"` runs one question through the
+same pipeline and prints every intermediate result.
 
 ## Research and product idea
 
-TODO: the persona, why this domain, and why cross-lingual retrieval is the core
-of the product rather than an added feature (§1.1, §3).
+**Persona (fictional):** Priya, 26, studies computer science in Leipzig and speaks little
+German. A letter from "XY Inkasso GmbH" demands €187.40 for an allegedly unpaid phone
+bill, payable within 14 days. She asks: *Is this a court order? Do I have to pay this? Is
+it a scam? What happens if I miss the deadline?*
+
+**Why this domain:** collection letters use formal legal German and set short deadlines.
+People without good German are the most likely to confuse a company's reminder with a
+court order, miss the two-week objection period, or pay fees that are not owed. The
+sources that answer their questions exist almost only in German.
+
+**Why cross-lingual retrieval is the core:** the user asks in English, the law is in
+German. The app therefore turns each English question into German legal search terms
+before searching (query translation). This is not an added feature for the course; without
+it the product would not work for its users.
+
+**Why statutes as the knowledge base:** a statute has a natural chunk unit (the section,
+§), clean metadata (law, section, title) and, for most questions, an objective answer to
+"which provisions are relevant?". That makes retrieval quality measurable against
+expected provisions without an LLM judge.
 
 ## Architecture
 
-TODO: pipeline diagram (§5.2), module map (§9) and dependency direction.
+```mermaid
+flowchart TD
+    Q[English question + triage] --> G{Guards<br/>length, injection patterns}
+    G -- blocked --> W[Warning, no LLM call]
+    G --> T{Out-of-scope topic<br/>in code, e.g. SCHUFA}
+    T -- yes --> R[Fixed refusal with referral]
+    T -- no --> P[Retrieval plan · LLM, JSON<br/>German queries + law filter]
+    P --> E[All queries embedded in one request]
+    E --> S[Vector search in Chroma<br/>filtered by law · top k]
+    S --> A[Answer call · LLM<br/>tools bound + JSON answer in one call]
+    A <-->|tool calls and results| TL[Deterministic tools<br/>deadline · limitation · interest · paragraph]
+    A --> C[Checks in code<br/>source IDs · quote fidelity · deadline reminder · referral]
+    C --> UI[Answer · legal basis · tool cards · RAG panel · cost]
+    L[Letter Check<br/>redact → preview → confirm] --> X[Extraction · LLM, JSON]
+    X --> M[Tool mapping in code] --> CL[Checklist + facts as source LETTER]
+    CL --> A
+```
+
+BM25 and hybrid fusion are implemented and selectable (`RETRIEVAL_MODE`); the default is
+vector search, which won the evaluation (see below).
+
+**Modules** (`src/collection_letter_navigator/`):
+
+| Module | Responsibility |
+|---|---|
+| `pipeline.py` | `ask()`: guards → plan → retrieval → answer, with timings and progress labels |
+| `retrieval.py` | retrieval plan, Chroma and BM25 search, law filter, fusion, pinning |
+| `answer.py` | answer call, tool-calling loop, source and quote checks, deadline reminder, referral |
+| `tools/` | `deadlines`, `limitation`, `interest`, `paragraph`, and the tool contract |
+| `letter_check.py` | redaction, extraction, tool mapping, checklist |
+| `guards.py` | input limits, injection patterns, delimiters for untrusted text |
+| `llm.py`, `pricing.py` | LangChain chat model via OpenRouter, retry, usage and cost |
+| `schemas.py` | Pydantic models for every structured output and the tool contract |
+| `presenter.py`, `demo.py` | what the UI shows, without Streamlit; demo cases |
+| `config.py` | every setting, overridable by environment variables |
+
+`app.py` (Streamlit) only renders and keeps the session state; prompts are Markdown files
+in `prompts/`. Dependencies point one way: UI → presenter/pipeline → answer/retrieval →
+tools/llm/schemas. Nothing below the UI imports Streamlit, so all logic is tested without
+it.
 
 ## Design decisions
 
-TODO: the five most important choices and why — among them the embedding model
-(D-1), the chat model (D-2), section-based chunking (FR-04 AC2), hybrid search
-(FR-07) and one-call vs. two-step tool calling (FR-10 AC8, D-7).
+1. **One chunk per statute section, with metadata** (FR-04 AC2). A section (§) is the unit
+   lawyers cite; long sections are split by subsection, and no chunk crosses a section
+   boundary. The metadata (law, section) drives the law filter and the links, and makes
+   retrieval measurable against expected provisions.
+2. **A multilingual embedding model chosen by a spike** (D-1). `qwen/qwen3-embedding-8b`
+   won a cross-lingual check (largest margin between the correct and the runner-up German
+   statement for an English question) and reached 80 % Hit-Rate@5 on the English question
+   alone. The original candidate was blocked by the course key.
+3. **Query translation yes, hybrid search no – decided by measurement** (D-8, D-10). The
+   LLM turns the English question into German legal queries and a law filter. On the test
+   set this raised Hit-Rate@5 from 87 % to 96 %; adding BM25 lowered it to 85 %, because
+   neighbouring sections share the same words. Hybrid search stays switchable.
+4. **Deterministic tools with a fixed contract, called from one LLM call** (D-7, FR-10).
+   Dates and amounts are calculated in Python, never by the model. Every tool returns the
+   same structure: result, assumptions, missing information, legal basis, or a reason for
+   no result ("no result is better than a wrong result"). Tools and the structured answer
+   are bound to the same call (`bind_tools(..., response_format=...)`), so a question
+   without calculation needs one LLM call, not two. In the Letter Check, code – not the
+   model – decides which tools run.
+5. **Safety in code where the model varies** (FR-21, FR-22, D-3, D-11). Guards block
+   injections before any LLM call; untrusted text is wrapped in delimiters; the German
+   quotes come from the knowledge base, and a quote the model writes that is not in the
+   source is removed; a court deadline is appended in code; SCHUFA questions are refused in
+   code, because the model recognised them only once in four runs; personal data is
+   redacted before a letter is sent to the model; all calls go to providers with zero
+   data retention.
 
 ## Retrieval evaluation results
 
@@ -201,19 +359,39 @@ Automatic checks: 15 of 15 passed in the final run; every answer reviewed as "ok
 
 ## Legal information disclaimer and data sources
 
-TODO: the disclaimer, the statute source and snapshot date, the base-rate source
-and retrieval date, and the get-help links (FR-21 AC5, AC6, §12 D-5).
+> This app provides general legal information, not legal advice.
+
+The disclaimer is shown on every screen. The app never says whether to pay, object or
+ignore a letter; for the individual case it points to free help:
+[Verbraucherzentrale](https://www.verbraucherzentrale.de) (consumer advice centres) and
+[meine-schulden.de](https://www.meine-schulden.de) (free debt counselling,
+Bundesarbeitsgemeinschaft Schuldnerberatung). Both links were checked on 2026-10-23.
+
+| Data | Source | As of |
+|---|---|---|
+| BGB, ZPO, RDG (selected sections, `data/kb_scope.yaml`) | official XML of [gesetze-im-internet.de](https://www.gesetze-im-internet.de) | BGB 2026-09-26, ZPO 2026-09-30, RDG 2024-12-31 (build date of each XML) |
+| Base interest rates (`data/base_rates.csv`) | Deutsche Bundesbank | all half-years from 2002-01-01 to 2026-07-01 (1.52 %); valid for dates up to 2026-12-31 |
+| Public holidays for deadlines | `holidays` package | nationwide holidays; federal state optional |
+| Demo letters and evaluation questions | written for this project | fictional |
+
+The knowledge base covers 84 chunks (BGB 47, ZPO 23, RDG 14): periods, limitation,
+default and interest, the summary payment procedure, and the rules for collection
+services. Enforcement, garnishment, insolvency, business claims and SCHUFA disputes are
+out of scope.
 
 ## Known limitations
 
-TODO: one labeler without legal training, small dataset, one snapshot of the
-law, one model family, and the limits of the R1↔R2 comparison (§7.5 AC3, §12).
-
+- **Evaluation validity:** one labeler without legal training, 23 scored retrieval
+  questions and 15 tool cases, one snapshot of the law, one chat model per run. The
+  numbers show that the design works for these questions, not a general accuracy.
+- **Answer time:** median 14.6 s per question on the development questions, 1 of 10 above
+  the 20 s target; most of it is the two LLM calls, and it varies with the provider.
 - Out-of-scope recognition by the model varies between runs; SCHUFA questions are
   therefore refused in code (D-11), and out-of-scope answers that cite provisions are
   replaced by a fixed refusal.
-- Answers occasionally mention internal details such as chunk IDs or tool names
-  (safety test S02).
+- Answers occasionally mention internal details such as chunk IDs, tool names or
+  "used_tools: []" (safety tests S02, S09), or label the triage facts "(LETTER)" without a
+  Letter Check (S03).
 - The model sometimes adds amounts itself (e.g. the total of a letter), although the
   prompt asks it not to calculate; simple sums were correct in the tests.
 - The Letter Check assumes that default starts 30 days after the invoice
@@ -230,14 +408,72 @@ law, one model family, and the limits of the R1↔R2 comparison (§7.5 AC3, §12
 
 ## Ideas for improvement
 
-TODO: everything dropped by the cut rule plus the Future Work of §2.2 (§11).
+- **Collection fees tool** (`check_collection_fees`, FR-15, Could): compare the fees in a
+  letter with the RVG limits; today the app explains the rules but does not calculate.
+- **Answer-quality evaluation:** the evaluations measure retrieval and tool use; a set of
+  reference answers judged by a second person (or an LLM judge checked against them) would
+  measure the answers themselves.
+- **Harder tool cases:** vague dates ("last week"), questions that need two tools, and
+  misleading wording.
+- **Redaction with named-entity recognition** for names outside the salutation, e.g. in
+  signatures.
+- **Case law and the public register** of collection services (RDG § 16), so the app can
+  check whether an agency is registered.
+- **Faster answers:** stream the answer, and skip the retrieval plan for questions that
+  only need a tool.
+- **Upload a photo or PDF** of the letter with OCR, instead of pasting text.
+- **A clearer message for HTTP 404** ("this model is not available with zero data
+  retention").
 
 ## Traceability
 
-TODO: the table mapping task requirements and review criteria to requirement
-IDs (§10.1).
+How the task requirements are met; the full mapping to requirement IDs is in
+[`PRODUCT_SPEC.md`](PRODUCT_SPEC.md) §10.
+
+| Task requirement | Where |
+|---|---|
+| Knowledge base, embeddings, chunking, similarity search | FR-04, FR-07; `ingest.py`, `retrieval.py`, `data/index/` |
+| Advanced RAG: query translation, structured retrieval | FR-05, FR-06; `prompts/retrieval_plan.md`, RAG panel |
+| At least 3 tool calls | FR-11 to FR-14; `tools/`, tool cards; tool evaluation 100 % / 100 % |
+| Domain prompts, responses and security | FR-08, FR-21 to FR-23; `prompts/`, `guards.py`, `docs/safety_tests.md` |
+| LangChain with OpenRouter, error handling, input validation | `llm.py`, NFR-02, FR-22 L1, tool schemas |
+| UI: sources, tool results, progress | FR-08 AC2, FR-17, FR-18; `app.py` |
+
+| Optional task | Where |
+|---|---|
+| Hard 1 – Hybrid search | FR-07, `RETRIEVAL_MODE=hybrid`, measured in the retrieval evaluation |
+| Hard 2 – A/B testing of RAG strategies | offline comparison R1–R4 (retrieval evaluation) |
+| Hard 7 – Evaluation of the RAG system | retrieval and tool-calling evaluations, `eval/` |
+| Medium 1 – Multi-model support | developer settings; comparison gpt-5-mini vs. claude-haiku-4.5 |
+| Medium 3 – Prompt-injection protection | FR-22, safety tests S08–S12 |
+| Medium 5 – Token usage and costs | FR-19, sidebar |
+| Medium 6 – Visualisation of tool results | tool cards |
+| Easy 2 – Visualisation of the RAG process | "How this answer was found" |
+| Easy 3 – Source citations | legal basis with German text and links |
+| Easy 4 – Interactive help | demo cases, common situations, "How this app works" |
 
 ## Tooling and AI assistance
 
-TODO: VS Code, Claude Code, how AI assistance was used and the author's own
-share.
+**Tools:** VS Code (as recommended by Turing College), Claude (chat sessions with access
+to the project folder) and Claude Code CLI; Gemini and ChatGPT for second opinions on the
+product idea and the spec; GitHub with pull requests and CI.
+
+**The author's share:**
+
+- formulated the product idea and had Claude, Gemini and ChatGPT check it against the
+  Turing College requirements;
+- reviewed the first spec written by Claude and had Gemini and ChatGPT challenge it;
+- wrote the use cases from which the test and evaluation data were built;
+- made the decisions during the spikes, e.g. to fix the unstable SCHUFA recognition in
+  code instead of documenting it (D-11), and to move weekend items forward so that the
+  Letter Check, the tool evaluation and the developer settings were done before the
+  feature freeze;
+- read all code, had parts of it explained, copied it into the files, tested it, ran the
+  browser tests and the evaluations, and committed and merged every change.
+
+**Claude's share:** the scaffold (Claude Code CLI, from the spec), the code and tests,
+daily plans, the analysis of the evaluation runs, and drafts of the spec, README and
+decision notes, each reviewed by the author.
+
+**What I learned most:** the spike phase at the start was useful to try things out and to
+make decisions about the technical implementation based on concrete test results.
