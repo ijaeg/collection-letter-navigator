@@ -48,8 +48,8 @@ OpenRouter API key. uv installs Python 3.13 itself if it is missing. The knowled
 (Chroma index with 84 chunks) is committed, so nothing has to be downloaded or embedded.
 
 ```bash
-git clone <repository-url>
-cd <repository-folder>
+git clone https://github.com/ijaeg/collection-letter-navigator.git
+cd collection-letter-navigator
 uv sync
 cp .env.example .env        # then set OPENROUTER_API_KEY in .env
 uv run streamlit run app.py
